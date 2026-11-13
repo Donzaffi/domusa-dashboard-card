@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.4.3";
+const CARD_VERSION = "0.4.5";
 const CARD_TYPE = "domusa-dashboard";
 const UNIQUE_ID_PREFIX = "domusa_";
 
@@ -115,6 +115,8 @@ class DomusaDashboardCard extends HTMLElement {
     this._registryConnection = undefined;
     this._registryPromise = undefined;
 
+    this._registryGeneration = 0;
+
     this._entitiesByDevice = {};
     this._loading = false;
     this._error = "";
@@ -140,9 +142,14 @@ class DomusaDashboardCard extends HTMLElement {
 
     if (hass && hass.connection && hass.connection !== this._registryConnection) {
       this._registryConnection = hass.connection;
+
+      // Invalidate all pending requests from the previous connection.
+      this._registryGeneration += 1;
+
       this._registryPromise = undefined;
       this._entitiesByDevice = {};
       this._error = "";
+      this._loading = false;
 
       this._loadEntityRegistry();
     } else {
@@ -159,28 +166,56 @@ class DomusaDashboardCard extends HTMLElement {
       return;
     }
 
+    const hass = this._hass;
+    const generation = this._registryGeneration;
+
     this._loading = true;
     this._error = "";
     this._render();
 
     try {
-      this._registryPromise = this._hass.callWS({
+      const request = hass.callWS({
         type: "config/entity_registry/list",
       });
 
-      const entries = await this._registryPromise;
+      this._registryPromise = request;
+
+      const entries = await request;
+
+      // Ignore responses belonging to an old Home Assistant connection.
+      if (
+        generation !== this._registryGeneration ||
+        hass !== this._hass
+      ) {
+        return;
+      }
 
       this._entitiesByDevice = this._mapBridgeEntities(entries);
       this._error = "";
     } catch (error) {
+      // Do not let an old connection overwrite the current error state.
+      if (
+        generation !== this._registryGeneration ||
+        hass !== this._hass
+      ) {
+        return;
+      }
+
       this._error = error && error.message
         ? error.message
         : "The Home Assistant entity registry could not be read.";
 
       this._entitiesByDevice = {};
     } finally {
-      this._loading = false;
-      this._render();
+      // Only the current request may change the loading state.
+      if (
+        generation === this._registryGeneration &&
+        hass === this._hass
+      ) {
+        this._loading = false;
+        this._registryPromise = undefined;
+        this._render();
+      }
     }
   }
 
@@ -208,6 +243,7 @@ class DomusaDashboardCard extends HTMLElement {
       if (!uniqueId.startsWith(UNIQUE_ID_PREFIX)) {
         continue;
       }
+
       const definition = SENSOR_DEFINITIONS
         .filter((item) => uniqueId.endsWith(`_${item.uid}`))
         .sort((a, b) => b.uid.length - a.uid.length)[0];
@@ -525,6 +561,21 @@ class DomusaDashboardCard extends HTMLElement {
           ? "pump-inactive"
           : "pump-unknown";
 
+    // Every SVG gets its own IDs, based on the device ID.
+    const svgPrefix = `domusa-${String(deviceId).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+
+    const svgIds = {
+      hpShell: `${svgPrefix}-hp-shell`,
+      tankShell: `${svgPrefix}-tank-shell`,
+      warmPipe: `${svgPrefix}-warm-pipe`,
+      coldPipe: `${svgPrefix}-cold-pipe`,
+      tankWater: `${svgPrefix}-tank-water`,
+      softShadow: `${svgPrefix}-soft-shadow`,
+      pipeGlow: `${svgPrefix}-pipe-glow`,
+      warmArrow: `${svgPrefix}-warm-arrow`,
+      coldArrow: `${svgPrefix}-cold-arrow`,
+    };
+
     return `
       <div class="diagram-panel hydraulic-panel">
         <div class="diagram-heading">
@@ -551,36 +602,36 @@ class DomusaDashboardCard extends HTMLElement {
             aria-label="Hydraulic circuit with heat pump, buffer tank, heating circuit pump C4 and return"
           >
             <defs>
-              <linearGradient id="hp-shell" x1="0" y1="0" x2="1" y2="1">
+              <linearGradient id="${svgIds.hpShell}" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%" stop-color="#243d56"/>
                 <stop offset="55%" stop-color="#152b40"/>
                 <stop offset="100%" stop-color="#0a1727"/>
               </linearGradient>
 
-              <linearGradient id="tank-shell" x1="0" y1="0" x2="1" y2="0">
+              <linearGradient id="${svgIds.tankShell}" x1="0" y1="0" x2="1" y2="0">
                 <stop offset="0%" stop-color="#172e43"/>
                 <stop offset="45%" stop-color="#31516a"/>
                 <stop offset="100%" stop-color="#102337"/>
               </linearGradient>
 
-              <linearGradient id="warm-pipe" x1="0" y1="0" x2="1" y2="0">
+              <linearGradient id="${svgIds.warmPipe}" x1="0" y1="0" x2="1" y2="0">
                 <stop offset="0%" stop-color="#ff9a43"/>
                 <stop offset="50%" stop-color="#ff6b3d"/>
                 <stop offset="100%" stop-color="#ffb15b"/>
               </linearGradient>
 
-              <linearGradient id="cold-pipe" x1="0" y1="0" x2="1" y2="0">
+              <linearGradient id="${svgIds.coldPipe}" x1="0" y1="0" x2="1" y2="0">
                 <stop offset="0%" stop-color="#39a9f5"/>
                 <stop offset="50%" stop-color="#37d0e5"/>
                 <stop offset="100%" stop-color="#398bd5"/>
               </linearGradient>
 
-              <linearGradient id="tank-water" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="${svgIds.tankWater}" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stop-color="#ff9a43" stop-opacity=".8"/>
                 <stop offset="100%" stop-color="#258fc7" stop-opacity=".5"/>
               </linearGradient>
 
-              <filter id="soft-shadow" x="-30%" y="-30%" width="160%" height="170%">
+              <filter id="${svgIds.softShadow}" x="-30%" y="-30%" width="160%" height="170%">
                 <feGaussianBlur in="SourceAlpha" stdDeviation="7"/>
                 <feOffset dx="0" dy="7"/>
                 <feComponentTransfer>
@@ -592,7 +643,7 @@ class DomusaDashboardCard extends HTMLElement {
                 </feMerge>
               </filter>
 
-              <filter id="pipe-glow" x="-30%" y="-30%" width="160%" height="160%">
+              <filter id="${svgIds.pipeGlow}" x="-30%" y="-30%" width="160%" height="160%">
                 <feGaussianBlur stdDeviation="4" result="blur"/>
                 <feMerge>
                   <feMergeNode in="blur"/>
@@ -600,11 +651,11 @@ class DomusaDashboardCard extends HTMLElement {
                 </feMerge>
               </filter>
 
-              <marker id="warm-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+              <marker id="${svgIds.warmArrow}" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
                 <path d="M0 0 L0 6 L8 3 Z" fill="#ff9a43"/>
               </marker>
 
-              <marker id="cold-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+              <marker id="${svgIds.coldArrow}" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
                 <path d="M0 0 L0 6 L8 3 Z" fill="#39a9f5"/>
               </marker>
             </defs>
@@ -627,7 +678,7 @@ class DomusaDashboardCard extends HTMLElement {
             <path
               class="pipe-supply"
               d="M185 142 H300 H405"
-              marker-end="url(#warm-arrow)"
+              marker-end="url(#${svgIds.warmArrow})"
             />
 
             <!-- Buffer to C4 and heating circuit -->
@@ -638,22 +689,33 @@ class DomusaDashboardCard extends HTMLElement {
             <path
               class="pipe-supply ${c4FlowClass}"
               d="M555 142 H675 H810 V245"
-              marker-end="url(#warm-arrow)"
+              marker-end="url(#${svgIds.warmArrow})"
             />
 
-            <!-- Return line -->
+            <!-- Heating circuit return: heating circuit back to buffer -->
             <path
               class="pipe-base"
-              d="M810 325 V365 H300 H185 V190"
+              d="M810 325 V365 H620 V225 H555"
             />
             <path
               class="pipe-return ${c4FlowClass}"
-              d="M810 325 V365 H300 H185 V190"
-              marker-end="url(#cold-arrow)"
+              d="M810 325 V365 H620 V225 H555"
+              marker-end="url(#${svgIds.coldArrow})"
+            />
+
+            <!-- Buffer return: buffer back to heat pump -->
+            <path
+              class="pipe-base"
+              d="M405 225 H270 V190 H185"
+            />
+            <path
+              class="pipe-return"
+              d="M405 225 H270 V190 H185"
+              marker-end="url(#${svgIds.coldArrow})"
             />
 
             <!-- Heat pump enclosure -->
-            <g filter="url(#soft-shadow)">
+            <g filter="url(#${svgIds.softShadow})">
               <rect class="hp-shell" x="35" y="95" width="150" height="150" rx="20"/>
               <rect class="hp-front" x="48" y="108" width="124" height="124" rx="14"/>
               <circle class="hp-fan-ring" cx="110" cy="165" r="39"/>
@@ -676,7 +738,7 @@ class DomusaDashboardCard extends HTMLElement {
             </g>
 
             <!-- Buffer tank -->
-            <g filter="url(#soft-shadow)">
+            <g filter="url(#${svgIds.softShadow})">
               <rect class="tank-shell" x="405" y="65" width="150" height="190" rx="26"/>
               <rect class="tank-inner" x="418" y="80" width="124" height="160" rx="18"/>
               <rect class="tank-water" x="419" y="145" width="122" height="94" rx="12"/>
@@ -689,7 +751,7 @@ class DomusaDashboardCard extends HTMLElement {
             </g>
 
             <!-- C4 pump -->
-            <g filter="url(#soft-shadow)">
+            <g filter="url(#${svgIds.softShadow})">
               <circle class="pump-housing ${pumpClass}" cx="675" cy="142" r="35"/>
               <circle class="pump-inner" cx="675" cy="142" r="25"/>
               <path class="pump-impeller" d="M666 128 L690 142 L666 156 Z"/>
@@ -700,25 +762,30 @@ class DomusaDashboardCard extends HTMLElement {
             </g>
 
             <!-- Heating circuit -->
-            <g filter="url(#soft-shadow)">
+            <g filter="url(#${svgIds.softShadow})">
               <rect class="heating-shell" x="740" y="245" width="140" height="80" rx="16"/>
               <path class="radiator-line" d="M765 265 V305 M785 265 V305 M805 265 V305 M825 265 V305 M845 265 V305"/>
               <text class="component-title" x="810" y="348" text-anchor="middle">HEATING CIRCUIT</text>
             </g>
 
-            <!-- Return sensor -->
+            <!-- Heat pump return sensor -->
             <g class="sensor-node">
-              <circle cx="300" cy="365" r="15"/>
-              <circle cx="300" cy="365" r="5"/>
-              <text class="sensor-label" x="300" y="405" text-anchor="middle">RETURN</text>
-              <text class="sensor-value" x="300" y="340" text-anchor="middle">
+              <circle cx="300" cy="225" r="15"/>
+              <circle cx="300" cy="225" r="5"/>
+              <text class="sensor-label" x="300" y="270" text-anchor="middle">RETURN</text>
+              <text class="sensor-value" x="300" y="205" text-anchor="middle">
                 ${this._escapeHtml(this._getFormattedValue(deviceId, "return_temperature"))}
               </text>
             </g>
 
             <text class="pipe-caption warm-caption" x="250" y="125">HEAT PUMP SUPPLY</text>
             <text class="pipe-caption warm-caption" x="610" y="125">TO HEATING CIRCUIT</text>
-            <text class="pipe-caption cold-caption" x="560" y="390">RETURN TO HEAT PUMP</text>
+            <text class="pipe-caption cold-caption" x="710" y="395" text-anchor="middle">
+              HEATING RETURN TO BUFFER
+            </text>
+            <text class="pipe-caption cold-caption" x="300" y="292" text-anchor="middle">
+              BUFFER RETURN TO HEAT PUMP
+            </text>
           </svg>
         </div>
 
@@ -819,702 +886,703 @@ class DomusaDashboardCard extends HTMLElement {
 
     const devices = Object.keys(this._entitiesByDevice);
 
-const styles = `
-  :host {
-    display: block;
-    color: var(--primary-text-color);
-    font-family: var(--primary-font-family, 'Segoe UI', Roboto, sans-serif);
-
-    --domusa-text: var(--primary-text-color, #e8edf2);
-    --domusa-secondary: var(--secondary-text-color, #9aa8b5);
-    --domusa-card: var(--card-background-color, #18212b);
-    --domusa-secondary-bg: var(--secondary-background-color, #202b36);
-    --domusa-border: var(--divider-color, rgba(128, 128, 128, .22));
-    --domusa-primary: var(--primary-color, #03a9f4);
-
-    --domusa-surface: rgba(18, 30, 43, .20);
-    --domusa-surface-soft: rgba(18, 30, 43, .12);
-    --domusa-surface-strong: rgba(18, 30, 43, .30);
-
-    --domusa-cyan: #42c8e5;
-    --domusa-blue: #399ce0;
-    --domusa-orange: #ff984c;
-    --domusa-green: #38c987;
-    --domusa-red: #f16f68;
-    --domusa-muted: var(--secondary-text-color, #8da6ba);
-  }
-
-  ha-card {
-    position: relative;
-    overflow: hidden;
-    color: var(--domusa-text);
-    border: 1px solid var(--domusa-border);
-    border-radius: 20px;
-
-    background:
-      radial-gradient(
-        ellipse at 12% 0%,
-        rgba(3, 169, 244, .09),
-        transparent 48%
-      ),
-      radial-gradient(
-        ellipse at 90% 100%,
-        rgba(66, 200, 229, .035),
-        transparent 48%
-      ),
-      rgba(18, 30, 43, .12) !important;
-
-    box-shadow:
-      var(--ha-card-box-shadow, 0 8px 28px rgba(0, 0, 0, .10)),
-      inset 0 1px 0 rgba(255, 255, 255, .045);
-
-    backdrop-filter: blur(22px) saturate(135%);
-    -webkit-backdrop-filter: blur(22px) saturate(135%);
-
-    transition:
-      box-shadow .3s ease,
-      border-color .3s ease;
-  }
-
-  ha-card::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    opacity: .35;
-
-    background-image: radial-gradient(
-      circle,
-      var(--domusa-muted) .65px,
-      transparent .8px
-    );
-
-    background-size: 18px 18px;
-    mask-image: linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, .45),
-      transparent 75%
-    );
-  }
-
-  ha-card:hover {
-    box-shadow:
-      var(--ha-card-box-shadow, 0 12px 34px rgba(0, 0, 0, .14)),
-      0 0 24px rgba(66, 200, 229, .045);
-  }
-
-  .header {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 22px 22px 17px;
-
-    border-bottom: 1px solid var(--domusa-border);
-
-    background: rgba(18, 30, 43, .10);
-
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-  }
-
-  .heading { min-width: 0; }
-
-  .title {
-    color: var(--domusa-text);
-    font-size: 1.2rem;
-    font-weight: 700;
-    letter-spacing: .025em;
-  }
-
-  .subtitle {
-    margin-top: 5px;
-    color: var(--domusa-secondary);
-    font-size: .8rem;
-  }
-
-  .version {
-    padding: 6px 9px;
-    border: 1px solid color-mix(in srgb, var(--domusa-primary) 28%, var(--domusa-border));
-    border-radius: 8px;
-    background: rgba(3, 169, 244, .08);
-    color: var(--domusa-primary);
-    font-size: .7rem;
-    white-space: nowrap;
-  }
-
-  .content {
-    position: relative;
-    padding: 0 20px 22px;
-  }
-
-  .device {
-    position: relative;
-  }
-
-  .device + .device {
-    margin-top: 22px;
-    padding-top: 18px;
-    border-top: 1px solid var(--domusa-border);
-  }
-
-  .device-title {
-    margin: 18px 20px 12px;
-    color: var(--domusa-secondary);
-    font-size: .75rem;
-    font-weight: 700;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-  }
-
-  .group + .group {
-    margin-top: 20px;
-  }
-
-  .group-title {
-    margin: 0 0 10px;
-    color: var(--domusa-text);
-    font-size: .88rem;
-    font-weight: 650;
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
-    gap: 10px;
-  }
-
-  .metric {
-    min-width: 0;
-    padding: 13px;
-
-    border: 1px solid var(--domusa-border);
-    border-radius: 13px;
-
-    background: rgba(18, 30, 43, .13);
-
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, .045),
-      0 5px 16px rgba(0, 0, 0, .055);
-
-    backdrop-filter: blur(16px) saturate(130%);
-    -webkit-backdrop-filter: blur(16px) saturate(130%);
-  }
-
-  .label {
-    color: var(--domusa-secondary);
-    font-size: .74rem;
-    line-height: 1.4;
-  }
-
-  .value {
-    margin-top: 8px;
-    color: var(--domusa-text);
-    font-size: 1.08rem;
-    font-weight: 680;
-    line-height: 1.3;
-    overflow-wrap: anywhere;
-  }
-
-  .value.active { color: var(--domusa-green); }
-  .value.inactive { color: var(--domusa-secondary); }
-  .value.muted {
-    color: var(--domusa-secondary);
-    font-size: .9rem;
-    font-weight: 550;
-  }
-
-  .message {
-    position: relative;
-    padding: 20px 22px;
-    color: var(--domusa-secondary);
-    font-size: .9rem;
-    line-height: 1.55;
-  }
-
-  .error { color: var(--domusa-red); }
-
-  .retry {
-    margin-top: 12px;
-    padding: 8px 13px;
-    border: 1px solid var(--domusa-border);
-    border-radius: 9px;
-    background: var(--domusa-surface);
-    color: var(--domusa-text);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .view-tabs {
-    position: relative;
-    display: flex;
-    gap: 8px;
-    padding: 0 20px 17px;
-    overflow-x: auto;
-  }
-
-  .view-tab {
-    padding: 9px 13px;
-    border: 1px solid var(--domusa-border);
-    border-radius: 10px;
-
-    background: rgba(18, 30, 43, .12);
-    color: var(--domusa-secondary);
-
-    font: inherit;
-    font-size: .78rem;
-    cursor: pointer;
-    white-space: nowrap;
-
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-
-    transition:
-      background .2s ease,
-      border-color .2s ease,
-      color .2s ease,
-      box-shadow .2s ease;
-  }
-
-  .view-tab:hover {
-    border-color: color-mix(in srgb, var(--domusa-primary) 42%, var(--domusa-border));
-    color: var(--domusa-text);
-  }
-
-  .view-tab.active {
-    border-color: color-mix(in srgb, var(--domusa-primary) 60%, var(--domusa-border));
-
-    background: rgba(3, 169, 244, .13);
-
-    color: var(--domusa-text);
-
-    box-shadow:
-      0 0 18px rgba(3, 169, 244, .08),
-      inset 0 1px 0 rgba(255, 255, 255, .07);
-  }
-
-  .diagram-panel {
-    position: relative;
-    margin: 0 18px 20px;
-    padding: 16px;
-
-    border: 1px solid var(--domusa-border);
-    border-radius: 17px;
-
-    background:
-      radial-gradient(
-        ellipse at 50% 0%,
-        rgba(3, 169, 244, .07),
-        transparent 62%
-      ),
-      rgba(18, 30, 43, .14);
-
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, .055),
-      0 10px 28px rgba(0, 0, 0, .075);
-
-    backdrop-filter: blur(20px) saturate(135%);
-    -webkit-backdrop-filter: blur(20px) saturate(135%);
-  }
-
-  .diagram-heading {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
-
-  .diagram-title {
-    color: var(--domusa-text);
-    font-size: .98rem;
-    font-weight: 700;
-  }
-
-  .diagram-subtitle {
-    margin-top: 5px;
-    color: var(--domusa-secondary);
-    font-size: .74rem;
-    line-height: 1.4;
-  }
-
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 7px 10px;
-
-    border: 1px solid var(--domusa-border);
-    border-radius: 20px;
-
-    background: rgba(18, 30, 43, .15);
-    color: var(--domusa-secondary);
-
-    font-size: .65rem;
-    font-weight: 700;
-    white-space: nowrap;
-
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-  }
-
-  .status-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-
-  .pump-running { color: var(--domusa-green); }
-  .pump-stopped { color: var(--domusa-secondary); }
-  .pump-unknown { color: var(--domusa-orange); }
-
-  .hydraulic-stage {
-    overflow: hidden;
-
-    border: 1px solid color-mix(
-      in srgb,
-      var(--domusa-border) 80%,
-      transparent
-    );
-
-    border-radius: 14px;
-
-    background: rgba(4, 15, 26, .12);
-
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-
-  .hydraulic-svg {
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-
-  .diagram-grid line {
-    stroke: rgba(122, 164, 191, .07);
-    stroke-width: 1;
-  }
-
-  .hp-shell {
-    fill: url(#hp-shell);
-    stroke: rgba(111, 174, 207, .65);
-    stroke-width: 2;
-  }
-
-  .hp-front {
-    fill: rgba(19, 43, 62, .96);
-    stroke: rgba(155, 202, 226, .3);
-    stroke-width: 1.5;
-  }
-
-  .hp-fan-ring {
-    fill: rgba(7, 20, 33, .6);
-    stroke: #4d94b8;
-    stroke-width: 3;
-  }
-
-  .hp-fan-hub { fill: #9fc8dc; }
-  .hp-fan-blade {
-    fill: #4d7e9a;
-    stroke: #78a9c0;
-    stroke-width: 1;
-  }
-
-  .component-title {
-    fill: #e8f6ff;
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: .05em;
-  }
-
-  .component-caption {
-    fill: #8daabd;
-    font-size: 9px;
-    letter-spacing: .14em;
-  }
-
-  .pipe-base {
-    fill: none;
-    stroke: rgba(5, 12, 20, .9);
-    stroke-width: 15;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .pipe-supply {
-    fill: none;
-    stroke: url(#warm-pipe);
-    stroke-width: 7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    filter: url(#pipe-glow);
-  }
-
-  .pipe-return {
-    fill: none;
-    stroke: url(#cold-pipe);
-    stroke-width: 7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .pipe-supply.flow-active,
-  .pipe-return.flow-active {
-    stroke-dasharray: 13 12;
-    animation: hydraulic-flow 1.2s linear infinite;
-  }
-
-  .sensor-node circle:first-child {
-    fill: #122b40;
-    stroke: #6fc7e4;
-    stroke-width: 3;
-  }
-
-  .sensor-node circle:nth-child(2) { fill: #d9f5ff; }
-
-  .sensor-label {
-    fill: #a7c1d2;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .1em;
-  }
-
-  .sensor-value {
-    fill: #e8f7ff;
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .tank-shell {
-    fill: url(#tank-shell);
-    stroke: #6b9bb7;
-    stroke-width: 2;
-  }
-
-  .tank-inner {
-    fill: rgba(7, 19, 31, .55);
-    stroke: rgba(166, 207, 228, .25);
-  }
-
-  .tank-water { fill: url(#tank-water); }
-
-  .tank-highlight {
-    stroke: rgba(255,255,255,.14);
-    stroke-width: 4;
-    stroke-linecap: round;
-  }
-
-  .tank-label {
-    fill: #c8e2f0;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .16em;
-  }
-
-  .tank-temp {
-    fill: #fff2df;
-    font-size: 20px;
-    font-weight: 700;
-  }
-
-  .tank-caption {
-    fill: #c2d8e5;
-    font-size: 9px;
-    letter-spacing: .2em;
-  }
-
-  .pump-housing { stroke-width: 3; }
-
-  .pump-active {
-    fill: #155c50;
-    stroke: #42d69a;
-    filter: drop-shadow(0 0 8px rgba(56, 201, 135, .35));
-  }
-
-  .pump-inactive {
-    fill: #263c4e;
-    stroke: #8197a8;
-  }
-
-  .pump-unknown {
-    fill: #55422d;
-    stroke: #f0a64f;
-  }
-
-  .pump-inner {
-    fill: rgba(4, 17, 27, .55);
-    stroke: rgba(255,255,255,.2);
-    stroke-width: 1.5;
-  }
-
-  .pump-impeller { fill: #d7edf6; }
-
-  .heating-shell {
-    fill: url(#tank-shell);
-    stroke: #5d8ca9;
-    stroke-width: 2;
-  }
-
-  .radiator-line {
-    stroke: #9dc1d4;
-    stroke-width: 5;
-    stroke-linecap: round;
-  }
-
-  .pipe-caption {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: .1em;
-  }
-
-  .warm-caption { fill: #ffad66; }
-  .cold-caption { fill: #65c8ed; }
-
-  .diagram-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    margin: 12px 2px 0;
-    color: var(--domusa-secondary);
-    font-size: .69rem;
-  }
-
-  .diagram-legend span {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .legend-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-
-  .legend-dot.warm { background: var(--domusa-orange); }
-  .legend-dot.cold { background: var(--domusa-blue); }
-  .legend-dot.green { background: var(--domusa-green); }
-
-  .diagram-metrics {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 9px;
-    margin-top: 15px;
-  }
-
-  .diagram-metric {
-    min-width: 0;
-    padding: 11px 12px;
-
-    border: 1px solid var(--domusa-border);
-    border-radius: 11px;
-
-    background: rgba(18, 30, 43, .13);
-
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, .04),
-      0 4px 12px rgba(0, 0, 0, .045);
-
-    backdrop-filter: blur(16px) saturate(130%);
-    -webkit-backdrop-filter: blur(16px) saturate(130%);
-  }
-
-  .diagram-metric-label {
-    color: var(--domusa-secondary);
-    font-size: .7rem;
-    line-height: 1.35;
-  }
-
-  .diagram-metric-value {
-    margin-top: 6px;
-    color: var(--domusa-text);
-    font-size: 1rem;
-    font-weight: 680;
-    overflow-wrap: anywhere;
-  }
-
-  .diagram-metric-value.active { color: var(--domusa-green); }
-  .diagram-metric-value.inactive { color: var(--domusa-secondary); }
-
-  .diagram-metric-value.muted {
-    color: var(--domusa-secondary);
-    font-size: .88rem;
-  }
-
-  .diagram-note {
-    margin-top: 13px;
-    padding-top: 11px;
-    border-top: 1px solid var(--domusa-border);
-    color: var(--domusa-secondary);
-    font-size: .7rem;
-    line-height: 1.5;
-  }
-
-  @keyframes hydraulic-flow {
-    to { stroke-dashoffset: -50; }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .pipe-supply.flow-active,
-    .pipe-return.flow-active {
-      animation: none;
-    }
-
-    ha-card {
-      transition: none;
-    }
-  }
-
-  @media (max-width: 520px) {
-    .header {
-      padding: 17px 15px 14px;
-    }
-
-    .content {
-      padding: 0 12px 16px;
-    }
-
-    .device-title {
-      margin-left: 12px;
-      margin-right: 12px;
-    }
-
-    .view-tabs {
-      padding-left: 12px;
-      padding-right: 12px;
-    }
-
-    .diagram-panel {
-      margin-left: 10px;
-      margin-right: 10px;
-      padding: 11px;
-    }
-
-    .diagram-heading {
-      flex-direction: column;
-    }
-
-    .diagram-metrics {
-      gap: 7px;
-    }
-
-    .diagram-metric {
-      padding: 9px;
-    }
-
-    .diagram-metric-value {
-      font-size: .91rem;
-    }
-
-    .grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-`;
+    const styles = `
+      :host {
+        display: block;
+        color: var(--primary-text-color);
+        font-family: var(--primary-font-family, 'Segoe UI', Roboto, sans-serif);
+
+        --domusa-text: var(--primary-text-color, #e8edf2);
+        --domusa-secondary: var(--secondary-text-color, #9aa8b5);
+        --domusa-card: var(--card-background-color, #18212b);
+        --domusa-secondary-bg: var(--secondary-background-color, #202b36);
+        --domusa-border: var(--divider-color, rgba(128, 128, 128, .22));
+        --domusa-primary: var(--primary-color, #03a9f4);
+
+        --domusa-surface: rgba(18, 30, 43, .045);
+        --domusa-surface-soft: rgba(18, 30, 43, .02);
+        --domusa-surface-strong: rgba(18, 30, 43, .08);
+
+        --domusa-cyan: #42c8e5;
+        --domusa-blue: #399ce0;
+        --domusa-orange: #ff984c;
+        --domusa-green: #38c987;
+        --domusa-red: #f16f68;
+        --domusa-muted: var(--secondary-text-color, #8da6ba);
+      }
+
+      ha-card {
+        position: relative;
+        overflow: hidden;
+        color: var(--domusa-text);
+        border: 1px solid var(--domusa-border);
+        border-radius: 20px;
+
+        background:
+          radial-gradient(
+            ellipse at 12% 0%,
+            rgba(3, 169, 244, .04),
+            transparent 48%
+          ),
+          radial-gradient(
+            ellipse at 90% 100%,
+            rgba(66, 200, 229, .015),
+            transparent 48%
+          ),
+          rgba(18, 30, 43, .045) !important;
+
+        box-shadow:
+          var(--ha-card-box-shadow, 0 8px 28px rgba(0, 0, 0, .10)),
+          inset 0 1px 0 rgba(255, 255, 255, .045);
+
+        backdrop-filter: blur(22px) saturate(135%);
+        -webkit-backdrop-filter: blur(22px) saturate(135%);
+
+        transition:
+          box-shadow .3s ease,
+          border-color .3s ease;
+      }
+
+      ha-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: .35;
+
+        background-image: radial-gradient(
+          circle,
+          var(--domusa-muted) .65px,
+          transparent .8px
+        );
+
+        background-size: 18px 18px;
+        mask-image: linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, .45),
+          transparent 75%
+        );
+      }
+
+      ha-card:hover {
+        box-shadow:
+          var(--ha-card-box-shadow, 0 12px 34px rgba(0, 0, 0, .14)),
+          0 0 24px rgba(66, 200, 229, .045);
+      }
+
+      .header {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 22px 22px 17px;
+
+        border-bottom: 1px solid var(--domusa-border);
+
+        background: rgba(18, 30, 43, .035);
+
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+
+      .heading { min-width: 0; }
+
+      .title {
+        color: var(--domusa-text);
+        font-size: 1.2rem;
+        font-weight: 700;
+        letter-spacing: .025em;
+      }
+
+      .subtitle {
+        margin-top: 5px;
+        color: var(--domusa-secondary);
+        font-size: .8rem;
+      }
+
+      .version {
+        padding: 6px 9px;
+        border: 1px solid color-mix(in srgb, var(--domusa-primary) 28%, var(--domusa-border));
+        border-radius: 8px;
+        background: rgba(3, 169, 244, .08);
+        color: var(--domusa-primary);
+        font-size: .7rem;
+        white-space: nowrap;
+      }
+
+      .content {
+        position: relative;
+        padding: 0 20px 22px;
+      }
+
+      .device {
+        position: relative;
+      }
+
+      .device + .device {
+        margin-top: 22px;
+        padding-top: 18px;
+        border-top: 1px solid var(--domusa-border);
+      }
+
+      .device-title {
+        margin: 18px 20px 12px;
+        color: var(--domusa-secondary);
+        font-size: .75rem;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+
+      .group + .group {
+        margin-top: 20px;
+      }
+
+      .group-title {
+        margin: 0 0 10px;
+        color: var(--domusa-text);
+        font-size: .88rem;
+        font-weight: 650;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        min-width: 0;
+        padding: 13px;
+
+        border: 1px solid var(--domusa-border);
+        border-radius: 13px;
+
+        background: rgba(18, 30, 43, .055);
+
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, .045),
+          0 5px 16px rgba(0, 0, 0, .055);
+
+        backdrop-filter: blur(16px) saturate(130%);
+        -webkit-backdrop-filter: blur(16px) saturate(130%);
+      }
+
+      .label {
+        color: var(--domusa-secondary);
+        font-size: .74rem;
+        line-height: 1.4;
+      }
+
+      .value {
+        margin-top: 8px;
+        color: var(--domusa-text);
+        font-size: 1.08rem;
+        font-weight: 680;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+      }
+
+      .value.active { color: var(--domusa-green); }
+      .value.inactive { color: var(--domusa-secondary); }
+      .value.muted {
+        color: var(--domusa-secondary);
+        font-size: .9rem;
+        font-weight: 550;
+      }
+
+      .message {
+        position: relative;
+        padding: 20px 22px;
+        color: var(--domusa-secondary);
+        font-size: .9rem;
+        line-height: 1.55;
+      }
+
+      .error { color: var(--domusa-red); }
+
+      .retry {
+        margin-top: 12px;
+        padding: 8px 13px;
+        border: 1px solid var(--domusa-border);
+        border-radius: 9px;
+        background: var(--domusa-surface);
+        color: var(--domusa-text);
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .view-tabs {
+        position: relative;
+        display: flex;
+        gap: 8px;
+        padding: 0 20px 17px;
+        overflow-x: auto;
+      }
+
+      .view-tab {
+        padding: 9px 13px;
+        border: 1px solid var(--domusa-border);
+        border-radius: 10px;
+
+        background: rgba(18, 30, 43, .05);
+        color: var(--domusa-secondary);
+
+        font: inherit;
+        font-size: .78rem;
+        cursor: pointer;
+        white-space: nowrap;
+
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+
+        transition:
+          background .2s ease,
+          border-color .2s ease,
+          color .2s ease,
+          box-shadow .2s ease;
+      }
+
+      .view-tab:hover {
+        border-color: color-mix(in srgb, var(--domusa-primary) 42%, var(--domusa-border));
+        color: var(--domusa-text);
+      }
+
+      .view-tab.active {
+        border-color: color-mix(in srgb, var(--domusa-primary) 60%, var(--domusa-border));
+
+        background: rgba(3, 169, 244, .13);
+
+        color: var(--domusa-text);
+
+        box-shadow:
+          0 0 18px rgba(3, 169, 244, .08),
+          inset 0 1px 0 rgba(255, 255, 255, .07);
+      }
+
+      .diagram-panel {
+        position: relative;
+        margin: 0 18px 20px;
+        padding: 16px;
+
+        border: 1px solid var(--domusa-border);
+        border-radius: 17px;
+
+        background:
+          radial-gradient(
+            ellipse at 50% 0%,
+            rgba(3, 169, 244, .07),
+            transparent 62%
+          ),
+          rgba(18, 30, 43, .055);
+
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, .055),
+          0 10px 28px rgba(0, 0, 0, .075);
+
+        backdrop-filter: blur(20px) saturate(135%);
+        -webkit-backdrop-filter: blur(20px) saturate(135%);
+      }
+
+      .diagram-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .diagram-title {
+        color: var(--domusa-text);
+        font-size: .98rem;
+        font-weight: 700;
+      }
+
+      .diagram-subtitle {
+        margin-top: 5px;
+        color: var(--domusa-secondary);
+        font-size: .74rem;
+        line-height: 1.4;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 10px;
+
+        border: 1px solid var(--domusa-border);
+        border-radius: 20px;
+
+        background: rgba(18, 30, 43, .06);
+        color: var(--domusa-secondary);
+
+        font-size: .65rem;
+        font-weight: 700;
+        white-space: nowrap;
+
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .pump-running { color: var(--domusa-green); }
+      .pump-stopped { color: var(--domusa-secondary); }
+      .pump-unknown { color: var(--domusa-orange); }
+
+      .hydraulic-stage {
+        overflow: hidden;
+
+        border: 1px solid color-mix(
+          in srgb,
+          var(--domusa-border) 80%,
+          transparent
+        );
+
+        border-radius: 14px;
+
+        background: rgba(4, 15, 26, .04);
+
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      .hydraulic-svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .diagram-grid line {
+        stroke: rgba(122, 164, 191, .07);
+        stroke-width: 1;
+      }
+
+      .hp-shell {
+        fill: url(#domusa-placeholder-hp-shell);
+        stroke: rgba(111, 174, 207, .65);
+        stroke-width: 2;
+      }
+
+      .hp-front {
+        fill: rgba(19, 43, 62, .96);
+        stroke: rgba(155, 202, 226, .3);
+        stroke-width: 1.5;
+      }
+
+      .hp-fan-ring {
+        fill: rgba(7, 20, 33, .6);
+        stroke: #4d94b8;
+        stroke-width: 3;
+      }
+
+      .hp-fan-hub { fill: #9fc8dc; }
+      .hp-fan-blade {
+        fill: #4d7e9a;
+        stroke: #78a9c0;
+        stroke-width: 1;
+      }
+
+      .component-title {
+        fill: #e8f6ff;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: .05em;
+      }
+
+      .component-caption {
+        fill: #8daabd;
+        font-size: 9px;
+        letter-spacing: .14em;
+      }
+
+      .pipe-base {
+        fill: none;
+        stroke: rgba(5, 12, 20, .9);
+        stroke-width: 15;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .pipe-supply {
+        fill: none;
+        stroke: var(--domusa-orange);
+        stroke-width: 7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: none;
+      }
+
+      .pipe-return {
+        fill: none;
+        stroke: var(--domusa-blue);
+        stroke-width: 7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .pipe-supply.flow-active,
+      .pipe-return.flow-active {
+        stroke-dasharray: 13 12;
+        animation: hydraulic-flow 1.2s linear infinite;
+      }
+
+      .sensor-node circle:first-child {
+        fill: #122b40;
+        stroke: #6fc7e4;
+        stroke-width: 3;
+      }
+
+      .sensor-node circle:nth-child(2) { fill: #d9f5ff; }
+
+      .sensor-label {
+        fill: #a7c1d2;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .1em;
+      }
+
+      .sensor-value {
+        fill: #e8f7ff;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .tank-shell {
+        fill: var(--domusa-card);
+        stroke: #6b9bb7;
+        stroke-width: 2;
+      }
+
+      .tank-inner {
+        fill: rgba(7, 19, 31, .55);
+        stroke: rgba(166, 207, 228, .25);
+      }
+
+      .tank-water { fill: rgba(255, 154, 67, .5); }
+
+      .tank-highlight {
+        stroke: rgba(255,255,255,.14);
+        stroke-width: 4;
+        stroke-linecap: round;
+      }
+
+      .tank-label {
+        fill: #c8e2f0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .16em;
+      }
+
+      .tank-temp {
+        fill: #fff2df;
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .tank-caption {
+        fill: #c2d8e5;
+        font-size: 9px;
+        letter-spacing: .2em;
+      }
+
+      .pump-housing { stroke-width: 3; }
+
+      .pump-active {
+        fill: #155c50;
+        stroke: #42d69a;
+        filter: drop-shadow(0 0 8px rgba(56, 201, 135, .35));
+      }
+
+      .pump-inactive {
+        fill: #263c4e;
+        stroke: #8197a8;
+      }
+
+      .pump-unknown {
+        fill: #55422d;
+        stroke: #f0a64f;
+      }
+
+      .pump-inner {
+        fill: rgba(4, 17, 27, .55);
+        stroke: rgba(255,255,255,.2);
+        stroke-width: 1.5;
+      }
+
+      .pump-impeller { fill: #d7edf6; }
+
+      .heating-shell {
+        fill: var(--domusa-card);
+        stroke: #5d8ca9;
+        stroke-width: 2;
+      }
+
+      .radiator-line {
+        stroke: #9dc1d4;
+        stroke-width: 5;
+        stroke-linecap: round;
+      }
+
+      .pipe-caption {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .1em;
+      }
+
+      .warm-caption { fill: #ffad66; }
+      .cold-caption { fill: #65c8ed; }
+
+      .diagram-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin: 12px 2px 0;
+        color: var(--domusa-secondary);
+        font-size: .69rem;
+      }
+
+      .diagram-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .legend-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+
+      .legend-dot.warm { background: var(--domusa-orange); }
+      .legend-dot.cold { background: var(--domusa-blue); }
+      .legend-dot.green { background: var(--domusa-green); }
+
+      .diagram-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+        margin-top: 15px;
+      }
+
+      .diagram-metric {
+        min-width: 0;
+        padding: 11px 12px;
+
+        border: 1px solid var(--domusa-border);
+        border-radius: 11px;
+
+        background: rgba(18, 30, 43, .055);
+
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, .04),
+          0 4px 12px rgba(0, 0, 0, .045);
+
+        backdrop-filter: blur(16px) saturate(130%);
+        -webkit-backdrop-filter: blur(16px) saturate(130%);
+      }
+
+      .diagram-metric-label {
+        color: var(--domusa-secondary);
+        font-size: .7rem;
+        line-height: 1.35;
+      }
+
+      .diagram-metric-value {
+        margin-top: 6px;
+        color: var(--domusa-text);
+        font-size: 1rem;
+        font-weight: 680;
+        overflow-wrap: anywhere;
+      }
+
+      .diagram-metric-value.active { color: var(--domusa-green); }
+      .diagram-metric-value.inactive { color: var(--domusa-secondary); }
+
+      .diagram-metric-value.muted {
+        color: var(--domusa-secondary);
+        font-size: .88rem;
+      }
+
+      .diagram-note {
+        margin-top: 13px;
+        padding-top: 11px;
+        border-top: 1px solid var(--domusa-border);
+        color: var(--domusa-secondary);
+        font-size: .7rem;
+        line-height: 1.5;
+      }
+
+      @keyframes hydraulic-flow {
+        to { stroke-dashoffset: -50; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .pipe-supply.flow-active,
+        .pipe-return.flow-active {
+          animation: none;
+        }
+
+        ha-card {
+          transition: none;
+        }
+      }
+
+      @media (max-width: 520px) {
+        .header {
+          padding: 17px 15px 14px;
+        }
+
+        .content {
+          padding: 0 12px 16px;
+        }
+
+        .device-title {
+          margin-left: 12px;
+          margin-right: 12px;
+        }
+
+        .view-tabs {
+          padding-left: 12px;
+          padding-right: 12px;
+        }
+
+        .diagram-panel {
+          margin-left: 10px;
+          margin-right: 10px;
+          padding: 11px;
+        }
+
+        .diagram-heading {
+          flex-direction: column;
+        }
+
+        .diagram-metrics {
+          gap: 7px;
+        }
+
+        .diagram-metric {
+          padding: 9px;
+        }
+
+        .diagram-metric-value {
+          font-size: .91rem;
+        }
+
+        .grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    `;
+
     let body = "";
 
     if (this._loading) {
