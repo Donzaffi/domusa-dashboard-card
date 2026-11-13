@@ -8,7 +8,7 @@
  * This card is strictly read-only.
  */
 
-const CARD_VERSION = "0.4.0";
+const CARD_VERSION = "0.4.1";
 const CARD_TYPE = "domusa-dashboard";
 const UNIQUE_ID_PREFIX = "domusa_";
 
