@@ -1,20 +1,16 @@
 
 /*
  * DOMUSA Dashboard Card
+ * Version 0.4.0
+ *
  * Reads existing DOMUSA Bridge entities from Home Assistant.
- * No sensors, services, or backend polling are created by this card.
+ * No sensors, services, MQTT messages, or backend polling are created.
+ * This card is strictly read-only.
  */
 
-const CARD_VERSION = "0.3.0";
+const CARD_VERSION = "0.4.0";
 const CARD_TYPE = "domusa-dashboard";
 const UNIQUE_ID_PREFIX = "domusa_";
-
-/*
- * IMPORTANT:
- * These are Bridge sensor UIDs, not MQTT/JSON payload keys.
- * Home Assistant unique IDs have this structure:
- * domusa_<cid>_<uid>
- */
 
 const SENSOR_DEFINITIONS = [
   // System
@@ -28,8 +24,8 @@ const SENSOR_DEFINITIONS = [
 
   // Temperatures
   { uid: "outside_temperature", label: "Outdoor temperature", group: "Temperatures", unit: "°C" },
-  { uid: "flow_temperature", label: "Water supply temperature", group: "Temperatures", unit: "°C" },
-  { uid: "return_temperature", label: "Water return temperature", group: "Temperatures", unit: "°C" },
+  { uid: "flow_temperature", label: "Heat pump supply", group: "Temperatures", unit: "°C" },
+  { uid: "return_temperature", label: "Heat pump return", group: "Temperatures", unit: "°C" },
   { uid: "buffer_temperature", label: "Buffer temperature", group: "Temperatures", unit: "°C" },
   { uid: "dhw_temperature", label: "DHW temperature", group: "Temperatures", unit: "°C" },
   { uid: "evaporator_temperature", label: "Evaporator temperature", group: "Temperatures", unit: "°C" },
@@ -37,8 +33,8 @@ const SENSOR_DEFINITIONS = [
   { uid: "suction_temperature", label: "Suction temperature", group: "Temperatures", unit: "°C" },
   { uid: "heat_exchanger_temperature", label: "Heat exchanger temperature", group: "Temperatures", unit: "°C" },
   { uid: "suction_evaporation_delta", label: "Suction / evaporation delta", group: "Temperatures", unit: "°C" },
-  { uid: "evaporation_calculated", label: "Calculated evaporation temperature", group: "Temperatures", unit: "°C" },
-  { uid: "condensation_calculated", label: "Calculated condensation temperature", group: "Temperatures", unit: "°C" },
+  { uid: "evaporation_calculated", label: "Calculated evaporation", group: "Temperatures", unit: "°C" },
+  { uid: "condensation_calculated", label: "Calculated condensation", group: "Temperatures", unit: "°C" },
   { uid: "ipm_temperature", label: "IPM module temperature", group: "Temperatures", unit: "°C" },
 
   // Setpoints
@@ -56,14 +52,42 @@ const SENSOR_DEFINITIONS = [
   { uid: "eev_position", label: "EEV position", group: "Refrigerant circuit", unit: "°" },
 
   // Hydraulics
-  { uid: "water_flow", label: "Water flow", group: "Hydraulics", unit: "L/min" },
-  { uid: "pump_c1_speed", label: "Pump C1 speed", group: "Hydraulics", unit: "%" },
+  { uid: "water_flow", label: "Heat pump water flow", group: "Hydraulics", unit: "L/min" },
+  { uid: "pump_c1_speed", label: "Internal pump C1 speed", group: "Hydraulics", unit: "%" },
   { uid: "fan1_rpm", label: "Fan 1 speed", group: "Hydraulics", unit: "rpm" },
   { uid: "fan2_rpm", label: "Fan 2 speed", group: "Hydraulics", unit: "rpm" },
 
   // Electrical
   { uid: "input_voltage", label: "Input voltage", group: "Electrical", unit: "V" },
   { uid: "ipm_voltage", label: "IPM voltage", group: "Electrical", unit: "V" },
+
+  // Alarms and errors
+  { uid: "alarm", label: "Alarm", group: "Alarms and errors", kind: "text" },
+  { uid: "sub_alarm", label: "Sub alarm", group: "Alarms and errors", kind: "text" },
+  { uid: "error_active", label: "Error active", group: "Alarms and errors", kind: "boolean" },
+  { uid: "error_codes", label: "Error codes", group: "Alarms and errors", kind: "text" },
+  { uid: "error_description", label: "Error description", group: "Alarms and errors", kind: "text" },
+
+  // Configuration
+  { uid: "config_acs_enabled", label: "DHW enabled", group: "Configuration", kind: "boolean" },
+  { uid: "config_sgready_enabled", label: "SG Ready enabled", group: "Configuration", kind: "boolean" },
+  { uid: "config_night_mode", label: "Night mode", group: "Configuration", kind: "boolean" },
+  { uid: "config_buffer_mode", label: "Buffer mode", group: "Configuration", kind: "text" },
+  { uid: "config_heat_cool_hysteresis", label: "Heating / cooling hysteresis", group: "Configuration" },
+  { uid: "config_acs_hysteresis", label: "DHW hysteresis", group: "Configuration" },
+  { uid: "config_buffer_hysteresis", label: "Buffer hysteresis", group: "Configuration" },
+
+  // Counters and statistics
+  { uid: "compressor_starts", label: "Compressor starts", group: "Statistics" },
+  { uid: "compressor_runtime", label: "Compressor runtime", group: "Statistics" },
+  { uid: "defrost_count", label: "Defrost count", group: "Statistics" },
+  { uid: "energy_statistics", label: "Energy statistics", group: "Statistics", kind: "text" },
+
+  // Daily energy and COP
+  { uid: "daily_production", label: "Daily heat production", group: "Daily energy" },
+  { uid: "daily_renewable", label: "Daily renewable energy", group: "Daily energy" },
+  { uid: "daily_consumption", label: "Daily electricity consumption", group: "Daily energy" },
+  { uid: "daily_cop", label: "Daily COP", group: "Daily energy" },
 ];
 
 const MODE_LABELS = {
@@ -84,6 +108,10 @@ const GROUP_ORDER = [
   "Refrigerant circuit",
   "Hydraulics",
   "Electrical",
+  "Alarms and errors",
+  "Configuration",
+  "Statistics",
+  "Daily energy",
 ];
 
 class DomusaDashboardCard extends HTMLElement {
@@ -96,11 +124,11 @@ class DomusaDashboardCard extends HTMLElement {
     this._config = {};
     this._registryConnection = undefined;
     this._registryPromise = undefined;
+
     this._entitiesByDevice = {};
     this._loading = false;
     this._error = "";
 
-    // Default view
     this._activeView = "hydraulic";
   }
 
@@ -133,7 +161,7 @@ class DomusaDashboardCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 10;
+    return 12;
   }
 
   async _loadEntityRegistry() {
@@ -167,13 +195,11 @@ class DomusaDashboardCard extends HTMLElement {
   }
 
   /*
-   * Maps:
+   * Registry mapping:
    * domusa_<cid>_<uid>
    *
-   * Example:
-   * domusa_12345_evaporator_temperature
-   *
-   * The cid keeps different heat pumps separate.
+   * Disabled entities are retained for diagnostics.
+   * They are not treated as missing entities.
    */
   _mapBridgeEntities(entries) {
     const mapped = {};
@@ -183,12 +209,7 @@ class DomusaDashboardCard extends HTMLElement {
     }
 
     for (const entry of entries) {
-      if (
-        !entry ||
-        !entry.unique_id ||
-        !entry.entity_id ||
-        entry.disabled_by
-      ) {
+      if (!entry || !entry.unique_id || !entry.entity_id) {
         continue;
       }
 
@@ -220,51 +241,111 @@ class DomusaDashboardCard extends HTMLElement {
         mapped[deviceId] = {};
       }
 
-      mapped[deviceId][definition.uid] = entry.entity_id;
+      mapped[deviceId][definition.uid] = {
+        entityId: entry.entity_id,
+        disabledBy: entry.disabled_by || null,
+      };
     }
 
     return mapped;
   }
 
-  _getState(deviceId, definition) {
-    const entityId = this._entitiesByDevice[deviceId]?.[definition.uid];
-
-    if (!entityId || !this._hass?.states) {
-      return undefined;
-    }
-
-    return this._hass.states[entityId];
+  _getEntityEntry(deviceId, definition) {
+    return this._entitiesByDevice[deviceId]?.[definition.uid] || null;
   }
 
-  _formatValue(stateObj, definition) {
+  /*
+   * Returns a structured status instead of silently converting
+   * missing or unavailable entities into an OFF state.
+   */
+  _getEntityStatus(deviceId, definition) {
+    const entry = this._getEntityEntry(deviceId, definition);
+
+    if (!entry) {
+      return {
+        status: "not_registered",
+        stateObj: null,
+        entityId: null,
+      };
+    }
+
+    if (entry.disabledBy) {
+      return {
+        status: "disabled",
+        stateObj: null,
+        entityId: entry.entityId,
+        disabledBy: entry.disabledBy,
+      };
+    }
+
+    const stateObj = this._hass?.states?.[entry.entityId];
+
     if (!stateObj) {
-      return "Not found";
+      return {
+        status: "no_state",
+        stateObj: null,
+        entityId: entry.entityId,
+      };
     }
 
+    if (stateObj.state === "unknown") {
+      return {
+        status: "unknown",
+        stateObj,
+        entityId: entry.entityId,
+      };
+    }
+
+    if (stateObj.state === "unavailable") {
+      return {
+        status: "unavailable",
+        stateObj,
+        entityId: entry.entityId,
+      };
+    }
+
+    return {
+      status: "available",
+      stateObj,
+      entityId: entry.entityId,
+    };
+  }
+
+  _formatValue(statusInfo, definition) {
+    if (!statusInfo || statusInfo.status !== "available") {
+      const messages = {
+        not_registered: "Not registered",
+        disabled: "Disabled",
+        no_state: "No state",
+        unknown: "Unknown",
+        unavailable: "Unavailable",
+      };
+
+      return messages[statusInfo?.status] || "Not available";
+    }
+
+    const stateObj = statusInfo.stateObj;
     const raw = stateObj.state;
-
-    if (
-      raw === "unknown" ||
-      raw === "unavailable" ||
-      raw === null ||
-      raw === undefined
-    ) {
-      return raw === "unavailable" ? "Unavailable" : "Unknown";
-    }
 
     if (definition.kind === "mode") {
       return MODE_LABELS[String(raw)] || String(raw);
     }
 
     if (definition.kind === "boolean") {
-      if (["on", "true", "1"].includes(String(raw).toLowerCase())) {
+      const normalized = String(raw).toLowerCase();
+
+      if (["on", "true", "1"].includes(normalized)) {
         return "On";
       }
 
-      if (["off", "false", "0"].includes(String(raw).toLowerCase())) {
+      if (["off", "false", "0"].includes(normalized)) {
         return "Off";
       }
 
+      return String(raw);
+    }
+
+    if (definition.kind === "text") {
       return String(raw);
     }
 
@@ -274,13 +355,12 @@ class DomusaDashboardCard extends HTMLElement {
       return String(raw);
     }
 
-    // The DHW target uses -255 to indicate that no target is set.
+    // The Bridge already applies the pressure value conversion.
+    // Do not apply another pressure scaling factor here.
     if (definition.kind === "target" && numeric === -255) {
       return "Not set";
     }
 
-    // The Bridge value_template has already processed the value.
-    // Do not apply additional pressure scaling here.
     const value = new Intl.NumberFormat(undefined, {
       maximumFractionDigits: 1,
     }).format(numeric);
@@ -293,34 +373,6 @@ class DomusaDashboardCard extends HTMLElement {
     return unit ? `${value} ${unit}` : value;
   }
 
-  _statusClass(stateObj, definition) {
-    if (
-      !stateObj ||
-      stateObj.state === "unknown" ||
-      stateObj.state === "unavailable"
-    ) {
-      return "muted";
-    }
-
-    if (definition.kind === "boolean") {
-      return ["on", "true", "1"].includes(
-        String(stateObj.state).toLowerCase()
-      )
-        ? "active"
-        : "";
-    }
-
-    if (definition.kind === "mode") {
-      const state = String(stateObj.state);
-
-      return ["0", "Warten", "Standby"].includes(state)
-        ? "muted"
-        : "active";
-    }
-
-    return "";
-  }
-
   _getFormattedValue(deviceId, uid) {
     const definition = SENSOR_DEFINITIONS.find(
       (item) => item.uid === uid
@@ -331,409 +383,580 @@ class DomusaDashboardCard extends HTMLElement {
     }
 
     return this._formatValue(
-      this._getState(deviceId, definition),
+      this._getEntityStatus(deviceId, definition),
       definition
     );
   }
 
-  _isOn(deviceId, uid) {
-    const stateObj = this._getState(deviceId, { uid });
+  /*
+   * Returns true, false, or null.
+   * null means that the pump state cannot be determined.
+   */
+  _getBooleanState(deviceId, uid) {
+    const definition = SENSOR_DEFINITIONS.find(
+      (item) => item.uid === uid
+    );
 
-    if (!stateObj) {
+    if (!definition) {
+      return null;
+    }
+
+    const info = this._getEntityStatus(deviceId, definition);
+
+    if (info.status !== "available") {
+      return null;
+    }
+
+    const value = String(info.stateObj.state).toLowerCase();
+
+    if (["on", "true", "1"].includes(value)) {
+      return true;
+    }
+
+    if (["off", "false", "0"].includes(value)) {
       return false;
     }
 
-    return ["on", "true", "1"].includes(
-      String(stateObj.state).toLowerCase()
-    );
+    return null;
+  }
+
+  _statusClass(statusInfo, definition) {
+    if (!statusInfo || statusInfo.status !== "available") {
+      return "muted";
+    }
+
+    if (definition.kind === "boolean") {
+      const value = String(statusInfo.stateObj.state).toLowerCase();
+
+      if (["on", "true", "1"].includes(value)) {
+        return "active";
+      }
+
+      if (["off", "false", "0"].includes(value)) {
+        return "inactive";
+      }
+
+      return "muted";
+    }
+
+    if (definition.kind === "mode") {
+      const state = String(statusInfo.stateObj.state);
+
+      return ["0", "Warten", "Standby"].includes(state)
+        ? "muted"
+        : "active";
+    }
+
+    return "";
   }
 
   _renderDiagramMetric(deviceId, uid, label) {
+    const definition = SENSOR_DEFINITIONS.find(
+      (item) => item.uid === uid
+    );
+
+    const info = definition
+      ? this._getEntityStatus(deviceId, definition)
+      : null;
+
+    const value = definition
+      ? this._formatValue(info, definition)
+      : "Not configured";
+
+    const statusClass = definition
+      ? this._statusClass(info, definition)
+      : "muted";
+
     return `
       <div class="diagram-metric">
         <div class="diagram-metric-label">
           ${this._escapeHtml(label)}
         </div>
-        <div class="diagram-metric-value">
-          ${this._escapeHtml(this._getFormattedValue(deviceId, uid))}
+        <div class="diagram-metric-value ${statusClass}">
+          ${this._escapeHtml(value)}
         </div>
       </div>
     `;
   }
 
+  _renderPumpStatus(deviceId) {
+    const state = this._getBooleanState(
+      deviceId,
+      "heating_circuit_pump"
+    );
+
+    if (state === true) {
+      return {
+        text: "RUNNING",
+        className: "pump-running",
+      };
+    }
+
+    if (state === false) {
+      return {
+        text: "STOPPED",
+        className: "pump-stopped",
+      };
+    }
+
+    const definition = SENSOR_DEFINITIONS.find(
+      (item) => item.uid === "heating_circuit_pump"
+    );
+
+    const info = this._getEntityStatus(deviceId, definition);
+
+    return {
+      text: this._formatValue(info, definition).toUpperCase(),
+      className: "pump-unknown",
+    };
+  }
+
   _renderHydraulicView(deviceId) {
-    const pumpOn = this._isOn(deviceId, "heating_circuit_pump");
-    const pumpClass = pumpOn ? "pump-active" : "pump-inactive";
-    const flowClass = pumpOn ? "flow-active" : "";
+    const pumpState = this._getBooleanState(
+      deviceId,
+      "heating_circuit_pump"
+    );
+
+    const pumpStatus = this._renderPumpStatus(deviceId);
+
+    // C4 status controls only the heating-circuit animation.
+    // It does not prove that the heat pump's internal water circuit
+    // or compressor is running.
+    const c4FlowClass = pumpState === true ? "flow-active" : "";
+    const pumpClass =
+      pumpState === true
+        ? "pump-active"
+        : pumpState === false
+          ? "pump-inactive"
+          : "pump-unknown";
 
     return `
-      <div class="diagram-panel">
-        <div class="diagram-title">
-          Hydraulischer Heizwasserkreislauf
+      <div class="diagram-panel hydraulic-panel">
+        <div class="diagram-heading">
+          <div>
+            <div class="diagram-title">
+              Hydraulic system
+            </div>
+            <div class="diagram-subtitle">
+              Heat pump · buffer tank · heating circuit pump C4
+            </div>
+          </div>
+
+          <div class="status-pill ${pumpStatus.className}">
+            <span class="status-dot"></span>
+            C4 ${this._escapeHtml(pumpStatus.text)}
+          </div>
         </div>
 
-        <div class="diagram-subtitle">
-          Wärmepumpe · Pufferspeicher · Heizkreispumpe C4
+        <div class="hydraulic-stage">
+          <svg
+            class="hydraulic-svg"
+            viewBox="0 0 960 440"
+            role="img"
+            aria-label="Hydraulic circuit with heat pump, buffer tank, heating circuit pump C4 and return"
+          >
+            <defs>
+              <linearGradient id="hp-shell" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#243d56"/>
+                <stop offset="55%" stop-color="#152b40"/>
+                <stop offset="100%" stop-color="#0a1727"/>
+              </linearGradient>
+
+              <linearGradient id="tank-shell" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#172e43"/>
+                <stop offset="45%" stop-color="#31516a"/>
+                <stop offset="100%" stop-color="#102337"/>
+              </linearGradient>
+
+              <linearGradient id="warm-pipe" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#ff9a43"/>
+                <stop offset="50%" stop-color="#ff6b3d"/>
+                <stop offset="100%" stop-color="#ffb15b"/>
+              </linearGradient>
+
+              <linearGradient id="cold-pipe" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#39a9f5"/>
+                <stop offset="50%" stop-color="#37d0e5"/>
+                <stop offset="100%" stop-color="#398bd5"/>
+              </linearGradient>
+
+              <linearGradient id="tank-water" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#ff9a43" stop-opacity=".8"/>
+                <stop offset="100%" stop-color="#258fc7" stop-opacity=".5"/>
+              </linearGradient>
+
+              <filter id="soft-shadow" x="-30%" y="-30%" width="160%" height="170%">
+                <feGaussianBlur in="SourceAlpha" stdDeviation="7"/>
+                <feOffset dx="0" dy="7"/>
+                <feComponentTransfer>
+                  <feFuncA type="linear" slope=".38"/>
+                </feComponentTransfer>
+                <feMerge>
+                  <feMergeNode/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+
+              <filter id="pipe-glow" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="4" result="blur"/>
+                <feMerge>
+                  <feMergeNode in="blur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+
+              <marker id="warm-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+                <path d="M0 0 L0 6 L8 3 Z" fill="#ff9a43"/>
+              </marker>
+
+              <marker id="cold-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+                <path d="M0 0 L0 6 L8 3 Z" fill="#39a9f5"/>
+              </marker>
+            </defs>
+
+            <!-- Background grid -->
+            <g class="diagram-grid">
+              ${Array.from({ length: 19 }, (_, i) =>
+                `<line x1="${i * 54}" y1="0" x2="${i * 54}" y2="440"/>`
+              ).join("")}
+              ${Array.from({ length: 9 }, (_, i) =>
+                `<line x1="0" y1="${i * 54}" x2="960" y2="${i * 54}"/>`
+              ).join("")}
+            </g>
+
+            <!-- Supply line from heat pump to buffer -->
+            <path
+              class="pipe-base"
+              d="M185 142 H300 H405"
+            />
+            <path
+              class="pipe-supply"
+              d="M185 142 H300 H405"
+              marker-end="url(#warm-arrow)"
+            />
+
+            <!-- Buffer to C4 and heating circuit -->
+            <path
+              class="pipe-base"
+              d="M555 142 H675 H810 V245"
+            />
+            <path
+              class="pipe-supply ${c4FlowClass}"
+              d="M555 142 H675 H810 V245"
+              marker-end="url(#warm-arrow)"
+            />
+
+            <!-- Return line -->
+            <path
+              class="pipe-base"
+              d="M810 325 V365 H300 H185 V190"
+            />
+            <path
+              class="pipe-return ${c4FlowClass}"
+              d="M810 325 V365 H300 H185 V190"
+              marker-end="url(#cold-arrow)"
+            />
+
+            <!-- Heat pump enclosure -->
+            <g filter="url(#soft-shadow)">
+              <rect class="hp-shell" x="35" y="95" width="150" height="150" rx="20"/>
+              <rect class="hp-front" x="48" y="108" width="124" height="124" rx="14"/>
+              <circle class="hp-fan-ring" cx="110" cy="165" r="39"/>
+              <circle class="hp-fan-hub" cx="110" cy="165" r="9"/>
+              <path class="hp-fan-blade" d="M110 156 C85 127 80 149 102 163 Z"/>
+              <path class="hp-fan-blade" d="M119 165 C148 140 153 163 123 172 Z"/>
+              <path class="hp-fan-blade" d="M108 174 C88 207 111 207 115 176 Z"/>
+              <text class="component-title" x="110" y="270" text-anchor="middle">DOMUSA</text>
+              <text class="component-caption" x="110" y="288" text-anchor="middle">HEAT PUMP</text>
+            </g>
+
+            <!-- Flow sensor -->
+            <g class="sensor-node">
+              <circle cx="300" cy="142" r="15"/>
+              <circle cx="300" cy="142" r="5"/>
+              <text class="sensor-label" x="300" y="105" text-anchor="middle">SUPPLY</text>
+              <text class="sensor-value" x="300" y="184" text-anchor="middle">
+                ${this._escapeHtml(this._getFormattedValue(deviceId, "flow_temperature"))}
+              </text>
+            </g>
+
+            <!-- Buffer tank -->
+            <g filter="url(#soft-shadow)">
+              <rect class="tank-shell" x="405" y="65" width="150" height="190" rx="26"/>
+              <rect class="tank-inner" x="418" y="80" width="124" height="160" rx="18"/>
+              <rect class="tank-water" x="419" y="145" width="122" height="94" rx="12"/>
+              <path class="tank-highlight" d="M432 91 V225"/>
+              <text class="tank-label" x="480" y="120" text-anchor="middle">BUFFER</text>
+              <text class="tank-temp" x="480" y="185" text-anchor="middle">
+                ${this._escapeHtml(this._getFormattedValue(deviceId, "buffer_temperature"))}
+              </text>
+              <text class="tank-caption" x="480" y="207" text-anchor="middle">TANK</text>
+            </g>
+
+            <!-- C4 pump -->
+            <g filter="url(#soft-shadow)">
+              <circle class="pump-housing ${pumpClass}" cx="675" cy="142" r="35"/>
+              <circle class="pump-inner" cx="675" cy="142" r="25"/>
+              <path class="pump-impeller" d="M666 128 L690 142 L666 156 Z"/>
+              <text class="component-title" x="675" y="205" text-anchor="middle">PUMP C4</text>
+              <text class="component-caption" x="675" y="222" text-anchor="middle">
+                ${this._escapeHtml(pumpStatus.text)}
+              </text>
+            </g>
+
+            <!-- Heating circuit -->
+            <g filter="url(#soft-shadow)">
+              <rect class="heating-shell" x="740" y="245" width="140" height="80" rx="16"/>
+              <path class="radiator-line" d="M765 265 V305 M785 265 V305 M805 265 V305 M825 265 V305 M845 265 V305"/>
+              <text class="component-title" x="810" y="348" text-anchor="middle">HEATING CIRCUIT</text>
+            </g>
+
+            <!-- Return sensor -->
+            <g class="sensor-node">
+              <circle cx="300" cy="365" r="15"/>
+              <circle cx="300" cy="365" r="5"/>
+              <text class="sensor-label" x="300" y="405" text-anchor="middle">RETURN</text>
+              <text class="sensor-value" x="300" y="340" text-anchor="middle">
+                ${this._escapeHtml(this._getFormattedValue(deviceId, "return_temperature"))}
+              </text>
+            </g>
+
+            <text class="pipe-caption warm-caption" x="250" y="125">HEAT PUMP SUPPLY</text>
+            <text class="pipe-caption warm-caption" x="610" y="125">TO HEATING CIRCUIT</text>
+            <text class="pipe-caption cold-caption" x="560" y="390">RETURN TO HEAT PUMP</text>
+          </svg>
         </div>
 
-        <svg
-          class="hydraulic-svg"
-          viewBox="0 0 900 350"
-          role="img"
-          aria-label="Hydraulischer Heizwasserkreislauf mit Pufferspeicher und Heizkreispumpe C4"
-        >
-          <defs>
-            <marker
-              id="supply-arrow"
-              markerWidth="10"
-              markerHeight="10"
-              refX="7"
-              refY="3"
-              orient="auto"
-            >
-              <path d="M0,0 L0,6 L8,3 z" fill="#e45b42"/>
-            </marker>
-
-            <marker
-              id="return-arrow"
-              markerWidth="10"
-              markerHeight="10"
-              refX="7"
-              refY="3"
-              orient="auto"
-            >
-              <path d="M0,0 L0,6 L8,3 z" fill="#398bd5"/>
-            </marker>
-          </defs>
-
-          <!-- Supply: heat pump to flow sensor, buffer, C4 and heating circuit -->
-          <path
-            class="flow-line supply ${flowClass}"
-            d="M135 105 H240 H335 H475 H590 H780 V220"
-            marker-end="url(#supply-arrow)"
-          />
-
-          <!-- Return: heating circuit through return sensor to heat pump -->
-          <path
-            class="flow-line return ${flowClass}"
-            d="M780 220 H240 H135 V145"
-            marker-end="url(#return-arrow)"
-          />
-
-          <!-- Heat pump -->
-          <rect
-            class="component"
-            x="15" y="70" width="120" height="100" rx="12"
-          />
-          <text x="75" y="112" text-anchor="middle" font-size="15">
-            Wärmepumpe
-          </text>
-          <text class="small-label" x="75" y="136" text-anchor="middle">
-            DOMUSA
-          </text>
-
-          <!-- Flow sensor -->
-          <circle cx="240" cy="105" r="13" fill="#e45b42"/>
-          <text x="240" y="75" text-anchor="middle" font-size="13">
-            Vorlauf
-          </text>
-          <text class="small-label" x="240" y="145" text-anchor="middle">
-            s_ida_hp_c08
-          </text>
-
-          <!-- Buffer tank -->
-          <rect
-            class="component"
-            x="335" y="55" width="140" height="100" rx="15"
-          />
-          <path
-            d="M350 105 H460"
-            stroke="var(--divider-color)"
-            stroke-width="2"
-          />
-          <text x="405" y="91" text-anchor="middle" font-size="15">
-            Pufferspeicher
-          </text>
-          <text class="small-label" x="405" y="130" text-anchor="middle">
-            Buffer
-          </text>
-
-          <!-- C4 heating circuit pump -->
-          <circle
-            cx="590"
-            cy="105"
-            r="30"
-            class="${pumpClass}"
-            stroke-width="3"
-          />
-          <path
-            d="M578 91 L604 105 L578 119 Z"
-            fill="var(--card-background-color)"
-          />
-          <text x="590" y="58" text-anchor="middle" font-size="14">
-            Pumpe C4
-          </text>
-          <text class="small-label" x="590" y="153" text-anchor="middle">
-            ${pumpOn ? "EIN" : "AUS"}
-          </text>
-
-          <!-- Heating circuit -->
-          <rect
-            class="component"
-            x="700" y="220" width="160" height="75" rx="12"
-          />
-          <text x="780" y="250" text-anchor="middle" font-size="15">
-            Heizkreis
-          </text>
-          <text class="small-label" x="780" y="273" text-anchor="middle">
-            Wärmeabgabe
-          </text>
-
-          <!-- Return sensor -->
-          <circle cx="240" cy="220" r="13" fill="#398bd5"/>
-          <text x="240" y="260" text-anchor="middle" font-size="13">
-            Rücklauf
-          </text>
-          <text class="small-label" x="240" y="282" text-anchor="middle">
-            s_ret_hp_c07
-          </text>
-
-          <text class="small-label" x="450" y="320" text-anchor="middle">
-            Fließrichtung im Heizwasserkreislauf
-          </text>
-        </svg>
+        <div class="diagram-legend">
+          <span><i class="legend-dot warm"></i> Warm water / supply</span>
+          <span><i class="legend-dot cold"></i> Return</span>
+          <span><i class="legend-dot green"></i> Pump active</span>
+        </div>
 
         <div class="diagram-metrics">
-          ${this._renderDiagramMetric(
-            deviceId,
-            "flow_temperature",
-            "Wasservorlauf · vor Puffer"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "buffer_temperature",
-            "Puffertemperatur"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "return_temperature",
-            "Wasserrücklauf · vor WP"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "water_flow",
-            "Wasserdurchfluss · WP"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "pump_c1_speed",
-            "Interne Pumpendrehzahl C1"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "heating_circuit_pump",
-            "Heizkreispumpe C4"
-          )}
+          ${this._renderDiagramMetric(deviceId, "flow_temperature", "Supply temperature · before buffer")}
+          ${this._renderDiagramMetric(deviceId, "buffer_temperature", "Buffer temperature")}
+          ${this._renderDiagramMetric(deviceId, "return_temperature", "Return temperature · before heat pump")}
+          ${this._renderDiagramMetric(deviceId, "water_flow", "Heat pump water flow")}
+          ${this._renderDiagramMetric(deviceId, "pump_c1_speed", "Internal pump C1 speed")}
+          ${this._renderDiagramMetric(deviceId, "heating_circuit_pump", "Heating circuit pump C4")}
         </div>
 
         <div class="diagram-note">
-          Die animierte Fließlinie wird anhand des C4-Status geschaltet.
-          Der angezeigte Wasserdurchfluss ist der Bridge-Messwert der
-          Wärmepumpe und kein separat gemessener Durchfluss hinter C4.
+          The water flow value is the heat pump measurement supplied by the Bridge.
+          It is not a separate flow measurement downstream of pump C4.
+          The C4 animation indicates only the heating circuit pump state.
         </div>
       </div>
     `;
   }
 
   _renderInternalView(deviceId) {
+    const compressor = this._getFormattedValue(
+      deviceId,
+      "compressor_frequency"
+    );
+
     return `
-      <div class="diagram-panel">
-        <div class="diagram-title">
-          Interner Arbeitsstatus
-        </div>
-
+      <div class="diagram-panel internal-panel">
+        <div class="diagram-title">Internal heat pump operation</div>
         <div class="diagram-subtitle">
-          Schematische Funktionsübersicht nach dem DOMUSA-Displayfoto.
-          Keine maßstabsgetreue technische Zeichnung.
+          3D-inspired functional illustration · not a manufacturer sectional drawing
         </div>
 
-        <svg
-          class="internal-svg"
-          viewBox="0 0 800 300"
-          role="img"
-          aria-label="Schematische interne Komponenten der Wärmepumpe"
-        >
-          <!-- Schematic refrigerant circuit -->
-          <path
-            d="M145 105 H300 V70 H470 V105 H650"
-            fill="none"
-            stroke="#e45b42"
-            stroke-width="7"
-            stroke-linecap="round"
-          />
+        <svg class="internal-svg" viewBox="0 0 900 410" role="img"
+          aria-label="Functional illustration of the internal heat pump components">
 
-          <path
-            d="M650 190 H470 V235 H300 V190 H145"
-            fill="none"
-            stroke="#e69a3a"
-            stroke-width="7"
-            stroke-linecap="round"
-          />
+          <defs>
+            <linearGradient id="internal-shell" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#304c66"/>
+              <stop offset="100%" stop-color="#0b1a2a"/>
+            </linearGradient>
+            <linearGradient id="hot-line" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#ffb15b"/>
+              <stop offset="100%" stop-color="#ef593c"/>
+            </linearGradient>
+            <linearGradient id="cold-line" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#3bc8e5"/>
+              <stop offset="100%" stop-color="#398bd5"/>
+            </linearGradient>
+            <filter id="internal-shadow" x="-30%" y="-30%" width="160%" height="170%">
+              <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+              <feOffset dy="6"/>
+              <feComponentTransfer>
+                <feFuncA type="linear" slope=".4"/>
+              </feComponentTransfer>
+              <feMerge>
+                <feMergeNode/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+
+          <g class="diagram-grid">
+            ${Array.from({ length: 17 }, (_, i) =>
+              `<line x1="${i * 56}" y1="0" x2="${i * 56}" y2="410"/>`
+            ).join("")}
+            ${Array.from({ length: 8 }, (_, i) =>
+              `<line x1="0" y1="${i * 56}" x2="900" y2="${i * 56}"/>`
+            ).join("")}
+          </g>
+
+          <!-- Refrigerant circuit lines -->
+          <path class="refrigerant-hot" d="M165 135 H290 H420 H555 H700"/>
+          <path class="refrigerant-cold" d="M700 280 H555 H420 H290 H165"/>
 
           <!-- Evaporator -->
-          <rect
-            class="component"
-            x="35" y="80" width="115" height="140" rx="12"
-          />
-          <path
-            d="M55 105 C125 105 60 125 130 125
-               M55 145 C125 145 60 165 130 165
-               M55 185 C125 185 60 205 130 205"
-            fill="none"
-            stroke="var(--secondary-text-color)"
-            stroke-width="3"
-          />
-          <text x="92" y="250" text-anchor="middle" font-size="14">
-            Verdampfer
-          </text>
+          <g filter="url(#internal-shadow)">
+            <rect class="internal-component" x="35" y="95" width="130" height="210" rx="18"/>
+            <rect class="component-inner" x="48" y="110" width="104" height="180" rx="12"/>
+            <path class="coil" d="
+              M60 135 H140 V155 H60 V175 H140 V195
+              H60 V215 H140 V235 H60 V255 H140 V275
+            "/>
+            <text class="internal-title" x="100" y="335" text-anchor="middle">EVAPORATOR</text>
+          </g>
 
           <!-- Compressor -->
-          <rect
-            class="component"
-            x="300" y="105" width="120" height="95" rx="12"
-          />
-          <text x="360" y="145" text-anchor="middle" font-size="15">
-            Verdichter
-          </text>
-          <text class="small-label" x="360" y="170" text-anchor="middle">
-            ${this._escapeHtml(
-              this._getFormattedValue(deviceId, "compressor_frequency")
-            )}
-          </text>
+          <g filter="url(#internal-shadow)">
+            <rect class="internal-component compressor-shell" x="290" y="95" width="130" height="210" rx="22"/>
+            <ellipse class="compressor-top" cx="355" cy="115" rx="52" ry="15"/>
+            <rect class="compressor-body" x="310" y="115" width="90" height="145" rx="18"/>
+            <ellipse class="compressor-base" cx="355" cy="260" rx="45" ry="14"/>
+            <text class="internal-title" x="355" y="335" text-anchor="middle">COMPRESSOR</text>
+            <text class="internal-value" x="355" y="357" text-anchor="middle">
+              ${this._escapeHtml(compressor)}
+            </text>
+          </g>
 
           <!-- Expansion valve -->
-          <rect
-            class="component"
-            x="465" y="190" width="55" height="45" rx="8"
-          />
-          <path
-            d="M475 200 L510 225 M510 200 L475 225"
-            stroke="var(--secondary-text-color)"
-            stroke-width="2"
-          />
-          <text class="small-label" x="492" y="260" text-anchor="middle">
-            EEV
-          </text>
+          <g filter="url(#internal-shadow)">
+            <rect class="internal-component" x="515" y="205" width="80" height="75" rx="14"/>
+            <path class="valve-symbol" d="M535 222 L575 262 M575 222 L535 262"/>
+            <text class="internal-title" x="555" y="310" text-anchor="middle">EEV</text>
+            <text class="internal-value" x="555" y="330" text-anchor="middle">
+              ${this._escapeHtml(this._getFormattedValue(deviceId, "eev_position"))}
+            </text>
+          </g>
 
           <!-- Heat exchanger -->
-          <rect
-            class="component"
-            x="650" y="80" width="115" height="140" rx="12"
-          />
-          <path
-            d="M670 105 C740 105 675 125 745 125
-               M670 145 C740 145 675 165 745 165
-               M670 185 C740 185 675 205 745 205"
-            fill="none"
-            stroke="var(--secondary-text-color)"
-            stroke-width="3"
-          />
-          <text x="707" y="250" text-anchor="middle" font-size="14">
-            Wärmetauscher
+          <g filter="url(#internal-shadow)">
+            <rect class="internal-component" x="700" y="95" width="160" height="210" rx="18"/>
+            <rect class="component-inner" x="714" y="110" width="132" height="180" rx="12"/>
+            <path class="coil" d="
+              M730 135 H830 V155 H730 V175 H830 V195
+              H730 V215 H830 V235 H730 V255 H830 V275
+            "/>
+            <text class="internal-title" x="780" y="335" text-anchor="middle">HEAT EXCHANGER</text>
+          </g>
+
+          <text class="internal-caption hot-caption" x="450" y="65" text-anchor="middle">
+            HIGH PRESSURE / HOT GAS SIDE
+          </text>
+          <text class="internal-caption cold-caption" x="450" y="390" text-anchor="middle">
+            LOW PRESSURE / REFRIGERANT RETURN SIDE
           </text>
         </svg>
 
         <div class="diagram-metrics">
-          ${this._renderDiagramMetric(
-            deviceId,
-            "evaporator_temperature",
-            "Verdampfertemperatur"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "suction_temperature",
-            "Sauggastemperatur"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "discharge_temperature",
-            "Heißgastemperatur"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "heat_exchanger_temperature",
-            "Wärmetauschertemperatur"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "high_pressure",
-            "Hochdruck"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "low_pressure",
-            "Niederdruck"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "compressor_frequency",
-            "Verdichterfrequenz"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "compressor_current",
-            "Verdichterstrom"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "fan1_rpm",
-            "Ventilator 1"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "fan2_rpm",
-            "Ventilator 2"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "water_flow",
-            "Wasserdurchfluss"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "flow_temperature",
-            "Wasservorlauf"
-          )}
-
-          ${this._renderDiagramMetric(
-            deviceId,
-            "return_temperature",
-            "Wasserrücklauf"
-          )}
+          ${this._renderDiagramMetric(deviceId, "evaporator_temperature", "Evaporator temperature")}
+          ${this._renderDiagramMetric(deviceId, "suction_temperature", "Suction temperature")}
+          ${this._renderDiagramMetric(deviceId, "discharge_temperature", "Discharge temperature")}
+          ${this._renderDiagramMetric(deviceId, "heat_exchanger_temperature", "Heat exchanger temperature")}
+          ${this._renderDiagramMetric(deviceId, "high_pressure", "High-side pressure")}
+          ${this._renderDiagramMetric(deviceId, "low_pressure", "Low-side pressure")}
+          ${this._renderDiagramMetric(deviceId, "compressor_frequency", "Compressor frequency")}
+          ${this._renderDiagramMetric(deviceId, "compressor_current", "Compressor current")}
+          ${this._renderDiagramMetric(deviceId, "fan1_rpm", "Fan 1")}
+          ${this._renderDiagramMetric(deviceId, "fan2_rpm", "Fan 2")}
+          ${this._renderDiagramMetric(deviceId, "water_flow", "Heat pump water flow")}
+          ${this._renderDiagramMetric(deviceId, "flow_temperature", "Heat pump supply")}
+          ${this._renderDiagramMetric(deviceId, "return_temperature", "Heat pump return")}
         </div>
 
         <div class="diagram-note">
-          Die Grafik ist eine vereinfachte Funktionsdarstellung.
-          Sie ersetzt nicht den originalen DOMUSA-Schalt- oder
-          Kältemittelplan.
+          This is an illustrative functional representation. Component positions
+          and refrigerant routing are not verified against the manufacturer's
+          internal engineering drawings.
         </div>
       </div>
+    `;
+  }
+
+  _renderDevice(deviceId) {
+    const groups = GROUP_ORDER.map((groupName) => {
+      const definitions = SENSOR_DEFINITIONS.filter(
+        (item) => item.group === groupName
+      );
+
+      const availableDefinitions = definitions.filter(
+        (item) => this._getEntityEntry(deviceId, item)
+      );
+
+      if (!availableDefinitions.length) {
+        return "";
+      }
+
+      const metrics = availableDefinitions.map((definition) => {
+        const info = this._getEntityStatus(deviceId, definition);
+        const value = this._formatValue(info, definition);
+        const statusClass = this._statusClass(info, definition);
+
+        return `
+          <div class="metric">
+            <div class="label">
+              ${this._escapeHtml(definition.label)}
+            </div>
+            <div class="value ${statusClass}">
+              ${this._escapeHtml(value)}
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <section class="group">
+          <h3 class="group-title">${this._escapeHtml(groupName)}</h3>
+          <div class="grid">${metrics}</div>
+        </section>
+      `;
+    }).join("");
+
+    let activeContent = "";
+
+    if (this._activeView === "internal") {
+      activeContent = this._renderInternalView(deviceId);
+    } else if (this._activeView === "values") {
+      activeContent = `<div class="content">${groups}</div>`;
+    } else {
+      activeContent = this._renderHydraulicView(deviceId);
+    }
+
+    return `
+      <section class="device">
+        <h2 class="device-title">
+          DOMUSA · ${this._escapeHtml(deviceId)}
+        </h2>
+
+        <div class="view-tabs">
+          <button class="view-tab ${this._activeView === "internal" ? "active" : ""}"
+            data-view="internal" type="button">
+            Internal operation
+          </button>
+
+          <button class="view-tab ${this._activeView === "hydraulic" ? "active" : ""}"
+            data-view="hydraulic" type="button">
+            Hydraulic circuit
+          </button>
+
+          <button class="view-tab ${this._activeView === "values" ? "active" : ""}"
+            data-view="values" type="button">
+            All measurements
+          </button>
+        </div>
+
+        ${activeContent}
+      </section>
     `;
   }
 
@@ -748,12 +971,26 @@ class DomusaDashboardCard extends HTMLElement {
       :host {
         display: block;
         color: var(--primary-text-color);
+        --domusa-bg: #091522;
+        --domusa-panel: #102236;
+        --domusa-panel-light: #19334b;
+        --domusa-border: rgba(139, 183, 211, .18);
+        --domusa-cyan: #42c8e5;
+        --domusa-blue: #399ce0;
+        --domusa-orange: #ff984c;
+        --domusa-green: #38c987;
+        --domusa-red: #f16f68;
+        --domusa-muted: #8da6ba;
       }
 
       ha-card {
         overflow: hidden;
-        border-radius: var(--ha-card-border-radius, 18px);
-        background: var(--ha-card-background, var(--card-background-color));
+        border: 1px solid var(--domusa-border);
+        border-radius: 20px;
+        background:
+          radial-gradient(ellipse at 15% 0%, rgba(37, 114, 153, .19), transparent 45%),
+          linear-gradient(145deg, #102337 0%, #091522 65%, #0d1c2b 100%);
+        box-shadow: 0 16px 42px rgba(0, 0, 0, .22);
       }
 
       .header {
@@ -761,173 +998,207 @@ class DomusaDashboardCard extends HTMLElement {
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 20px 20px 14px;
+        padding: 22px 22px 17px;
+        border-bottom: 1px solid var(--domusa-border);
+        background: linear-gradient(110deg, rgba(47, 103, 138, .19), transparent 65%);
       }
 
-      .heading {
-        min-width: 0;
-      }
+      .heading { min-width: 0; }
 
       .title {
-        font-size: 1.15rem;
-        font-weight: 650;
-        letter-spacing: .01em;
+        color: #edf7ff;
+        font-size: 1.2rem;
+        font-weight: 700;
+        letter-spacing: .025em;
       }
 
       .subtitle {
-        margin-top: 4px;
-        color: var(--secondary-text-color);
-        font-size: .82rem;
+        margin-top: 5px;
+        color: #91aec3;
+        font-size: .8rem;
       }
 
       .version {
-        color: var(--secondary-text-color);
-        font-size: .68rem;
+        padding: 6px 9px;
+        border: 1px solid rgba(66, 200, 229, .24);
+        border-radius: 8px;
+        background: rgba(66, 200, 229, .08);
+        color: #73d9eb;
+        font-size: .7rem;
         white-space: nowrap;
       }
 
-      .content {
-        padding: 0 20px 20px;
-      }
+      .content { padding: 0 20px 22px; }
 
       .device + .device {
         margin-top: 22px;
         padding-top: 18px;
-        border-top: 1px solid var(--divider-color);
+        border-top: 1px solid var(--domusa-border);
       }
 
       .device-title {
-        margin: 0 20px 12px;
-        color: var(--secondary-text-color);
-        font-size: .78rem;
-        font-weight: 650;
-        letter-spacing: .09em;
+        margin: 18px 20px 12px;
+        color: #9bb6c9;
+        font-size: .75rem;
+        font-weight: 700;
+        letter-spacing: .12em;
         text-transform: uppercase;
       }
 
-      .group + .group {
-        margin-top: 18px;
-      }
+      .group + .group { margin-top: 20px; }
 
       .group-title {
-        margin: 0 0 9px;
+        margin: 0 0 10px;
+        color: #d9eaf6;
         font-size: .88rem;
-        font-weight: 600;
+        font-weight: 650;
       }
 
       .grid {
         display: grid;
-        grid-template-columns: repeat(
-          auto-fit,
-          minmax(min(100%, 145px), 1fr)
-        );
-        gap: 9px;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+        gap: 10px;
       }
 
       .metric {
         min-width: 0;
-        padding: 12px 13px;
-        border: 1px solid var(--divider-color);
+        padding: 13px;
+        border: 1px solid var(--domusa-border);
         border-radius: 13px;
-        background: var(
-          --secondary-background-color,
-          rgba(127,127,127,.06)
-        );
+        background: linear-gradient(145deg, rgba(34, 62, 84, .7), rgba(13, 29, 45, .88));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 6px 15px rgba(0,0,0,.12);
       }
 
       .label {
-        color: var(--secondary-text-color);
-        font-size: .75rem;
-        line-height: 1.35;
+        color: #91aabd;
+        font-size: .74rem;
+        line-height: 1.4;
       }
 
       .value {
-        margin-top: 7px;
-        font-size: 1.12rem;
-        font-weight: 650;
-        line-height: 1.25;
+        margin-top: 8px;
+        color: #edf7ff;
+        font-size: 1.08rem;
+        font-weight: 680;
+        line-height: 1.3;
         overflow-wrap: anywhere;
       }
 
-      .value.active {
-        color: var(--success-color, var(--primary-color));
-      }
-
-      .value.muted {
-        color: var(--secondary-text-color);
-        font-size: .96rem;
-        font-weight: 550;
-      }
+      .value.active { color: var(--domusa-green); }
+      .value.inactive { color: #a3b4c1; }
+      .value.muted { color: #879aaa; font-size: .9rem; font-weight: 550; }
 
       .message {
-        padding: 18px 20px 20px;
-        color: var(--secondary-text-color);
+        padding: 20px 22px;
+        color: #9bb1c2;
         font-size: .9rem;
-        line-height: 1.5;
+        line-height: 1.55;
       }
 
-      .error {
-        color: var(--error-color);
-      }
+      .error { color: #ff8a83; }
 
       .retry {
         margin-top: 12px;
-        padding: 7px 12px;
-        border: 1px solid var(--divider-color);
+        padding: 8px 13px;
+        border: 1px solid var(--domusa-border);
         border-radius: 9px;
-        background: transparent;
-        color: var(--primary-text-color);
+        background: #19334b;
+        color: #e7f4fc;
         font: inherit;
         cursor: pointer;
       }
 
-      /* View navigation */
-
       .view-tabs {
         display: flex;
         gap: 8px;
-        padding: 0 20px 16px;
+        padding: 0 20px 17px;
         overflow-x: auto;
       }
 
       .view-tab {
         padding: 9px 13px;
-        border: 1px solid var(--divider-color);
+        border: 1px solid var(--domusa-border);
         border-radius: 10px;
-        background: transparent;
-        color: var(--secondary-text-color);
+        background: rgba(12, 29, 45, .7);
+        color: #9bb2c4;
         font: inherit;
-        font-size: .82rem;
+        font-size: .78rem;
         cursor: pointer;
         white-space: nowrap;
+        transition: background .2s ease, border-color .2s ease, color .2s ease;
       }
 
       .view-tab.active {
-        color: var(--primary-text-color);
-        background: var(--secondary-background-color);
-        border-color: var(--primary-color);
+        border-color: rgba(66, 200, 229, .65);
+        background: linear-gradient(135deg, rgba(43, 139, 170, .28), rgba(34, 76, 111, .4));
+        color: #e8f8ff;
+        box-shadow: 0 0 16px rgba(66, 200, 229, .08);
       }
 
-      /* Diagram panels */
-
       .diagram-panel {
-        margin: 0 20px 20px;
-        padding: 14px;
-        border: 1px solid var(--divider-color);
-        border-radius: 15px;
-        background: var(--secondary-background-color);
+        margin: 0 18px 20px;
+        padding: 16px;
+        border: 1px solid var(--domusa-border);
+        border-radius: 17px;
+        background:
+          radial-gradient(ellipse at 50% 0%, rgba(44, 104, 141, .16), transparent 60%),
+          linear-gradient(145deg, rgba(19, 43, 64, .97), rgba(9, 23, 37, .98));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 12px 26px rgba(0,0,0,.16);
+      }
+
+      .diagram-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
       }
 
       .diagram-title {
-        margin-bottom: 5px;
-        font-size: .95rem;
-        font-weight: 650;
+        color: #e7f4fc;
+        font-size: .98rem;
+        font-weight: 700;
       }
 
       .diagram-subtitle {
-        margin-bottom: 14px;
-        color: var(--secondary-text-color);
-        font-size: .75rem;
+        margin-top: 5px;
+        color: #8fa9bc;
+        font-size: .74rem;
+        line-height: 1.4;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 10px;
+        border: 1px solid var(--domusa-border);
+        border-radius: 20px;
+        background: rgba(0,0,0,.14);
+        color: #a8bdcd;
+        font-size: .65rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .pump-running { color: var(--domusa-green); }
+      .pump-stopped { color: #a4b5c2; }
+      .pump-unknown { color: var(--domusa-orange); }
+
+      .hydraulic-stage {
+        overflow: hidden;
+        border: 1px solid rgba(113, 166, 197, .12);
+        border-radius: 14px;
+        background:
+          radial-gradient(ellipse at 50% 40%, rgba(48, 103, 139, .13), transparent 65%),
+          rgba(4, 15, 26, .34);
       }
 
       .hydraulic-svg,
@@ -937,128 +1208,331 @@ class DomusaDashboardCard extends HTMLElement {
         height: auto;
       }
 
-      .hydraulic-svg text,
-      .internal-svg text {
-        fill: var(--primary-text-color);
-        font-family: inherit;
+      .diagram-grid line {
+        stroke: rgba(122, 164, 191, .07);
+        stroke-width: 1;
       }
 
-      .hydraulic-svg .small-label,
-      .internal-svg .small-label {
-        fill: var(--secondary-text-color);
-        font-size: 12px;
-      }
-
-      .hydraulic-svg .component,
-      .internal-svg .component {
-        fill: var(--card-background-color);
-        stroke: var(--divider-color);
+      .hp-shell {
+        fill: url(#hp-shell);
+        stroke: rgba(111, 174, 207, .65);
         stroke-width: 2;
       }
 
-      .hydraulic-svg .flow-line {
+      .hp-front {
+        fill: rgba(19, 43, 62, .96);
+        stroke: rgba(155, 202, 226, .3);
+        stroke-width: 1.5;
+      }
+
+      .hp-fan-ring {
+        fill: rgba(7, 20, 33, .6);
+        stroke: #4d94b8;
+        stroke-width: 3;
+      }
+
+      .hp-fan-hub { fill: #9fc8dc; }
+      .hp-fan-blade { fill: #4d7e9a; stroke: #78a9c0; stroke-width: 1; }
+
+      .component-title {
+        fill: #e8f6ff;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: .05em;
+      }
+
+      .component-caption {
+        fill: #8daabd;
+        font-size: 9px;
+        letter-spacing: .14em;
+      }
+
+      .pipe-base {
         fill: none;
+        stroke: rgba(5, 12, 20, .9);
+        stroke-width: 15;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .pipe-supply {
+        fill: none;
+        stroke: url(#warm-pipe);
+        stroke-width: 7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: url(#pipe-glow);
+      }
+
+      .pipe-return {
+        fill: none;
+        stroke: url(#cold-pipe);
         stroke-width: 7;
         stroke-linecap: round;
         stroke-linejoin: round;
       }
 
-      .hydraulic-svg .supply {
-        stroke: #e45b42;
-      }
-
-      .hydraulic-svg .return {
-        stroke: #398bd5;
-      }
-
-      .hydraulic-svg .flow-active {
-        stroke-dasharray: 12 10;
+      .pipe-supply.flow-active,
+      .pipe-return.flow-active {
+        stroke-dasharray: 13 12;
         animation: hydraulic-flow 1.2s linear infinite;
       }
 
-      .hydraulic-svg .pump-active {
-        stroke: var(--success-color, #16a34a);
-        fill: var(--success-color, #16a34a);
+      .sensor-node circle:first-child {
+        fill: #122b40;
+        stroke: #6fc7e4;
+        stroke-width: 3;
       }
 
-      .hydraulic-svg .pump-inactive {
-        stroke: var(--secondary-text-color);
-        fill: var(--secondary-background-color);
+      .sensor-node circle:nth-child(2) { fill: #d9f5ff; }
+
+      .sensor-label {
+        fill: #a7c1d2;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .1em;
       }
+
+      .sensor-value {
+        fill: #e8f7ff;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .tank-shell {
+        fill: url(#tank-shell);
+        stroke: #6b9bb7;
+        stroke-width: 2;
+      }
+
+      .tank-inner {
+        fill: rgba(7, 19, 31, .55);
+        stroke: rgba(166, 207, 228, .25);
+      }
+
+      .tank-water { fill: url(#tank-water); }
+      .tank-highlight { stroke: rgba(255,255,255,.14); stroke-width: 4; stroke-linecap: round; }
+      .tank-label { fill: #c8e2f0; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+      .tank-temp { fill: #fff2df; font-size: 20px; font-weight: 700; }
+      .tank-caption { fill: #c2d8e5; font-size: 9px; letter-spacing: .2em; }
+
+      .pump-housing {
+        stroke-width: 3;
+      }
+
+      .pump-active {
+        fill: #155c50;
+        stroke: #42d69a;
+        filter: drop-shadow(0 0 8px rgba(56, 201, 135, .35));
+      }
+
+      .pump-inactive {
+        fill: #263c4e;
+        stroke: #8197a8;
+      }
+
+      .pump-unknown {
+        fill: #55422d;
+        stroke: #f0a64f;
+      }
+
+      .pump-inner {
+        fill: rgba(4, 17, 27, .55);
+        stroke: rgba(255,255,255,.2);
+        stroke-width: 1.5;
+      }
+
+      .pump-impeller { fill: #d7edf6; }
+
+      .heating-shell {
+        fill: url(#internal-shell);
+        stroke: #5d8ca9;
+        stroke-width: 2;
+      }
+
+      .radiator-line {
+        stroke: #9dc1d4;
+        stroke-width: 5;
+        stroke-linecap: round;
+      }
+
+      .pipe-caption {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .1em;
+      }
+
+      .warm-caption { fill: #ffad66; }
+      .cold-caption { fill: #65c8ed; }
+
+      .diagram-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin: 12px 2px 0;
+        color: #9bb3c5;
+        font-size: .69rem;
+      }
+
+      .diagram-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .legend-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+
+      .legend-dot.warm { background: var(--domusa-orange); }
+      .legend-dot.cold { background: var(--domusa-blue); }
+      .legend-dot.green { background: var(--domusa-green); }
 
       .diagram-metrics {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 9px;
-        margin-top: 14px;
+        margin-top: 15px;
       }
 
       .diagram-metric {
         min-width: 0;
-        padding: 11px;
-        border: 1px solid var(--divider-color);
+        padding: 11px 12px;
+        border: 1px solid var(--domusa-border);
         border-radius: 11px;
+        background: linear-gradient(145deg, rgba(34, 62, 84, .6), rgba(10, 25, 40, .8));
       }
 
       .diagram-metric-label {
-        color: var(--secondary-text-color);
-        font-size: .73rem;
+        color: #91aabd;
+        font-size: .7rem;
+        line-height: 1.35;
       }
 
       .diagram-metric-value {
-        margin-top: 5px;
-        font-size: 1.05rem;
-        font-weight: 650;
+        margin-top: 6px;
+        color: #edf7ff;
+        font-size: 1rem;
+        font-weight: 680;
         overflow-wrap: anywhere;
       }
 
+      .diagram-metric-value.active { color: var(--domusa-green); }
+      .diagram-metric-value.inactive { color: #a3b4c1; }
+      .diagram-metric-value.muted { color: #879aaa; font-size: .88rem; }
+
       .diagram-note {
-        margin-top: 12px;
-        color: var(--secondary-text-color);
-        font-size: .72rem;
-        line-height: 1.45;
+        margin-top: 13px;
+        padding-top: 11px;
+        border-top: 1px solid rgba(139, 183, 211, .12);
+        color: #819bad;
+        font-size: .7rem;
+        line-height: 1.5;
+      }
+
+      /* Internal illustration */
+
+      .internal-svg {
+        overflow: hidden;
+        border: 1px solid rgba(113, 166, 197, .12);
+        border-radius: 14px;
+        background: rgba(4, 15, 26, .34);
+      }
+
+      .internal-component {
+        fill: url(#internal-shell);
+        stroke: #6b9bb7;
+        stroke-width: 2;
+      }
+
+      .component-inner {
+        fill: rgba(6, 21, 34, .5);
+        stroke: rgba(156, 200, 222, .25);
+      }
+
+      .coil {
+        fill: none;
+        stroke: #6fc2df;
+        stroke-width: 4;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+      }
+
+      .compressor-shell { fill: #1d3d56; }
+      .compressor-top { fill: #49738c; stroke: #8db6ca; stroke-width: 2; }
+      .compressor-body { fill: #244c68; stroke: #80aeca; stroke-width: 2; }
+      .compressor-base { fill: #142d43; stroke: #638ba5; stroke-width: 2; }
+
+      .internal-title {
+        fill: #dceef8;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: .08em;
+      }
+
+      .internal-value {
+        fill: #8edbf0;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .internal-caption {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .12em;
+      }
+
+      .hot-caption { fill: #ffab66; }
+      .cold-caption { fill: #68c9e8; }
+
+      .refrigerant-hot {
+        fill: none;
+        stroke: url(#hot-line);
+        stroke-width: 6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .refrigerant-cold {
+        fill: none;
+        stroke: url(#cold-line);
+        stroke-width: 6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .valve-symbol {
+        fill: none;
+        stroke: #b8d5e5;
+        stroke-width: 3;
+        stroke-linecap: round;
       }
 
       @keyframes hydraulic-flow {
-        to {
-          stroke-dashoffset: -44;
-        }
+        to { stroke-dashoffset: -50; }
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .hydraulic-svg .flow-active {
+        .pipe-supply.flow-active,
+        .pipe-return.flow-active {
           animation: none;
         }
       }
 
-      @media (max-width: 420px) {
-        .header {
-          padding: 16px 16px 12px;
-        }
-
-        .content {
-          padding: 0 16px 16px;
-        }
-
-        .grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .diagram-panel {
-          margin-left: 12px;
-          margin-right: 12px;
-          padding: 10px;
-        }
-
-        .view-tabs {
-          padding-left: 12px;
-          padding-right: 12px;
-        }
-
-        .device-title {
-          margin-left: 12px;
-          margin-right: 12px;
-        }
+      @media (max-width: 520px) {
+        .header { padding: 17px 15px 14px; }
+        .content { padding: 0 12px 16px; }
+        .device-title { margin-left: 12px; margin-right: 12px; }
+        .view-tabs { padding-left: 12px; padding-right: 12px; }
+        .diagram-panel { margin-left: 10px; margin-right: 10px; padding: 11px; }
+        .diagram-heading { flex-direction: column; }
+        .diagram-metrics { gap: 7px; }
+        .diagram-metric { padding: 9px; }
+        .diagram-metric-value { font-size: .91rem; }
+        .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
     `;
 
@@ -1073,21 +1547,17 @@ class DomusaDashboardCard extends HTMLElement {
     } else if (this._error) {
       body = `
         <div class="message">
-          <div class="error">
-            Could not discover DOMUSA entities.
-          </div>
+          <div class="error">Could not discover DOMUSA entities.</div>
           <div>${this._escapeHtml(this._error)}</div>
-          <button class="retry" type="button">
-            Retry discovery
-          </button>
+          <button class="retry" type="button">Retry discovery</button>
         </div>
       `;
     } else if (devices.length === 0) {
       body = `
         <div class="message">
           No DOMUSA Bridge entities were found in the Home Assistant
-          entity registry. Check that the Bridge sensors are enabled
-          and that their unique IDs use the <code>domusa_</code> prefix.
+          entity registry. Check that the Bridge integration is loaded
+          and that its unique IDs use the <code>domusa_</code> prefix.
         </div>
       `;
     } else {
@@ -1100,17 +1570,14 @@ class DomusaDashboardCard extends HTMLElement {
 
     this.shadowRoot.innerHTML = `
       <style>${styles}</style>
-
       <ha-card>
         <div class="header">
           <div class="heading">
             <div class="title">DOMUSA Dashboard</div>
-            <div class="subtitle">Heat pump overview</div>
+            <div class="subtitle">Heat pump monitoring · Live Bridge data</div>
           </div>
-
           <div class="version">v${CARD_VERSION}</div>
         </div>
-
         ${body}
       </ha-card>
     `;
@@ -1129,102 +1596,6 @@ class DomusaDashboardCard extends HTMLElement {
         this._render();
       });
     });
-  }
-
-  _renderDevice(deviceId) {
-    const groups = GROUP_ORDER.map((groupName) => {
-      const definitions = SENSOR_DEFINITIONS.filter(
-        (item) => item.group === groupName
-      );
-
-      const availableDefinitions = definitions.filter(
-        (item) => this._entitiesByDevice[deviceId]?.[item.uid]
-      );
-
-      if (!availableDefinitions.length) {
-        return "";
-      }
-
-      const metrics = availableDefinitions.map((definition) => {
-        const stateObj = this._getState(deviceId, definition);
-        const value = this._formatValue(stateObj, definition);
-        const statusClass = this._statusClass(stateObj, definition);
-
-        return `
-          <div class="metric">
-            <div class="label">
-              ${this._escapeHtml(definition.label)}
-            </div>
-
-            <div class="value ${statusClass}">
-              ${this._escapeHtml(value)}
-            </div>
-          </div>
-        `;
-      }).join("");
-
-      return `
-        <section class="group">
-          <h3 class="group-title">
-            ${this._escapeHtml(groupName)}
-          </h3>
-
-          <div class="grid">
-            ${metrics}
-          </div>
-        </section>
-      `;
-    }).join("");
-
-    let activeContent = "";
-
-    if (this._activeView === "internal") {
-      activeContent = this._renderInternalView(deviceId);
-    } else if (this._activeView === "values") {
-      activeContent = `
-        <div class="content">
-          ${groups}
-        </div>
-      `;
-    } else {
-      activeContent = this._renderHydraulicView(deviceId);
-    }
-
-    return `
-      <section class="device">
-        <h2 class="device-title">
-          DOMUSA · ${this._escapeHtml(deviceId)}
-        </h2>
-
-        <div class="view-tabs">
-          <button
-            class="view-tab ${this._activeView === "internal" ? "active" : ""}"
-            data-view="internal"
-            type="button"
-          >
-            Arbeitsstatus
-          </button>
-
-          <button
-            class="view-tab ${this._activeView === "hydraulic" ? "active" : ""}"
-            data-view="hydraulic"
-            type="button"
-          >
-            Heizwasserkreislauf
-          </button>
-
-          <button
-            class="view-tab ${this._activeView === "values" ? "active" : ""}"
-            data-view="values"
-            type="button"
-          >
-            Alle Messwerte
-          </button>
-        </div>
-
-        ${activeContent}
-      </section>
-    `;
   }
 
   _escapeHtml(value) {
@@ -1248,7 +1619,7 @@ if (!window.customCards.some((card) => card.type === CARD_TYPE)) {
   window.customCards.push({
     type: CARD_TYPE,
     name: "DOMUSA Dashboard",
-    description: "Live overview for DOMUSA heat pumps using existing Bridge entities.",
+    description: "Read-only live monitoring for DOMUSA heat pumps using existing Bridge entities.",
     preview: false,
   });
 }
