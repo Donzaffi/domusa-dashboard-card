@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.4.4";
+const CARD_VERSION = "0.4.5";
 const CARD_TYPE = "domusa-dashboard";
 const UNIQUE_ID_PREFIX = "domusa_";
 
@@ -727,12 +727,14 @@ class DomusaDashboardCard extends HTMLElement {
               <text class="component-caption" x="110" y="288" text-anchor="middle">HEAT PUMP</text>
             </g>
 
-            <!-- Flow sensor -->
+            <!-- Flow sensor: supply temperature above the pipe -->
             <g class="sensor-node">
               <circle cx="300" cy="142" r="15"/>
               <circle cx="300" cy="142" r="5"/>
-              <text class="sensor-label" x="300" y="105" text-anchor="middle">SUPPLY</text>
-              <text class="sensor-value" x="300" y="184" text-anchor="middle">
+              <text class="sensor-label" x="300" y="101" text-anchor="middle">
+                SUPPLY
+              </text>
+              <text class="sensor-value" x="300" y="124" text-anchor="middle">
                 ${this._escapeHtml(this._getFormattedValue(deviceId, "flow_temperature"))}
               </text>
             </g>
@@ -768,23 +770,23 @@ class DomusaDashboardCard extends HTMLElement {
               <text class="component-title" x="810" y="348" text-anchor="middle">HEATING CIRCUIT</text>
             </g>
 
-            <!-- Heat pump return sensor -->
+            <!-- Heat pump return sensor: temperature below the pipe -->
             <g class="sensor-node">
               <circle cx="300" cy="225" r="15"/>
               <circle cx="300" cy="225" r="5"/>
-              <text class="sensor-label" x="300" y="270" text-anchor="middle">RETURN</text>
-              <text class="sensor-value" x="300" y="205" text-anchor="middle">
+              <text class="sensor-label" x="300" y="269" text-anchor="middle">
+                RETURN
+              </text>
+              <text class="sensor-value" x="300" y="294" text-anchor="middle">
                 ${this._escapeHtml(this._getFormattedValue(deviceId, "return_temperature"))}
               </text>
             </g>
 
-            <text class="pipe-caption warm-caption" x="250" y="125">HEAT PUMP SUPPLY</text>
-            <text class="pipe-caption warm-caption" x="610" y="125">TO HEATING CIRCUIT</text>
+            <text class="pipe-caption warm-caption" x="610" y="125">
+              TO HEATING CIRCUIT
+            </text>
             <text class="pipe-caption cold-caption" x="710" y="395" text-anchor="middle">
               HEATING RETURN TO BUFFER
-            </text>
-            <text class="pipe-caption cold-caption" x="300" y="292" text-anchor="middle">
-              BUFFER RETURN TO HEAT PUMP
             </text>
           </svg>
         </div>
@@ -1344,14 +1346,14 @@ class DomusaDashboardCard extends HTMLElement {
 
       .sensor-label {
         fill: #a7c1d2;
-        font-size: 11px;
+        font-size: 13px;
         font-weight: 700;
         letter-spacing: .1em;
       }
 
       .sensor-value {
         fill: #e8f7ff;
-        font-size: 12px;
+        font-size: 14px;
         font-weight: 700;
       }
 
@@ -1432,7 +1434,7 @@ class DomusaDashboardCard extends HTMLElement {
       }
 
       .pipe-caption {
-        font-size: 10px;
+        font-size: 12px;
         font-weight: 700;
         letter-spacing: .1em;
       }
@@ -1492,8 +1494,8 @@ class DomusaDashboardCard extends HTMLElement {
 
       .diagram-metric-label {
         color: var(--domusa-secondary);
-        font-size: .7rem;
-        line-height: 1.35;
+        font-size: .76rem;
+        line-height: 1.4;
       }
 
       .diagram-metric-value {
@@ -1573,8 +1575,12 @@ class DomusaDashboardCard extends HTMLElement {
           padding: 9px;
         }
 
+        .diagram-metric-label {
+          font-size: .74rem;
+        }
+
         .diagram-metric-value {
-          font-size: .91rem;
+          font-size: .96rem;
         }
 
         .grid {
