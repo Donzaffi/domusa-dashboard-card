@@ -1,14 +1,14 @@
 
 /*
  * DOMUSA Dashboard Card
- * Version 0.4.0
+ * Version 0.4.2
  *
  * Reads existing DOMUSA Bridge entities from Home Assistant.
  * No sensors, services, MQTT messages, or backend polling are created.
  * This card is strictly read-only.
  */
 
-const CARD_VERSION = "0.4.1";
+const CARD_VERSION = "0.4.2";
 const CARD_TYPE = "domusa-dashboard";
 const UNIQUE_ID_PREFIX = "domusa_";
 
@@ -757,138 +757,6 @@ class DomusaDashboardCard extends HTMLElement {
     `;
   }
 
-  _renderInternalView(deviceId) {
-    const compressor = this._getFormattedValue(
-      deviceId,
-      "compressor_frequency"
-    );
-
-    return `
-      <div class="diagram-panel internal-panel">
-        <div class="diagram-title">Internal heat pump operation</div>
-        <div class="diagram-subtitle">
-          3D-inspired functional illustration · not a manufacturer sectional drawing
-        </div>
-
-        <svg class="internal-svg" viewBox="0 0 900 410" role="img"
-          aria-label="Functional illustration of the internal heat pump components">
-
-          <defs>
-            <linearGradient id="internal-shell" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#304c66"/>
-              <stop offset="100%" stop-color="#0b1a2a"/>
-            </linearGradient>
-            <linearGradient id="hot-line" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stop-color="#ffb15b"/>
-              <stop offset="100%" stop-color="#ef593c"/>
-            </linearGradient>
-            <linearGradient id="cold-line" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stop-color="#3bc8e5"/>
-              <stop offset="100%" stop-color="#398bd5"/>
-            </linearGradient>
-            <filter id="internal-shadow" x="-30%" y="-30%" width="160%" height="170%">
-              <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
-              <feOffset dy="6"/>
-              <feComponentTransfer>
-                <feFuncA type="linear" slope=".4"/>
-              </feComponentTransfer>
-              <feMerge>
-                <feMergeNode/>
-                <feMergeNode in="SourceGraphic"/>
-              </feMerge>
-            </filter>
-          </defs>
-
-          <g class="diagram-grid">
-            ${Array.from({ length: 17 }, (_, i) =>
-              `<line x1="${i * 56}" y1="0" x2="${i * 56}" y2="410"/>`
-            ).join("")}
-            ${Array.from({ length: 8 }, (_, i) =>
-              `<line x1="0" y1="${i * 56}" x2="900" y2="${i * 56}"/>`
-            ).join("")}
-          </g>
-
-          <!-- Refrigerant circuit lines -->
-          <path class="refrigerant-hot" d="M165 135 H290 H420 H555 H700"/>
-          <path class="refrigerant-cold" d="M700 280 H555 H420 H290 H165"/>
-
-          <!-- Evaporator -->
-          <g filter="url(#internal-shadow)">
-            <rect class="internal-component" x="35" y="95" width="130" height="210" rx="18"/>
-            <rect class="component-inner" x="48" y="110" width="104" height="180" rx="12"/>
-            <path class="coil" d="
-              M60 135 H140 V155 H60 V175 H140 V195
-              H60 V215 H140 V235 H60 V255 H140 V275
-            "/>
-            <text class="internal-title" x="100" y="335" text-anchor="middle">EVAPORATOR</text>
-          </g>
-
-          <!-- Compressor -->
-          <g filter="url(#internal-shadow)">
-            <rect class="internal-component compressor-shell" x="290" y="95" width="130" height="210" rx="22"/>
-            <ellipse class="compressor-top" cx="355" cy="115" rx="52" ry="15"/>
-            <rect class="compressor-body" x="310" y="115" width="90" height="145" rx="18"/>
-            <ellipse class="compressor-base" cx="355" cy="260" rx="45" ry="14"/>
-            <text class="internal-title" x="355" y="335" text-anchor="middle">COMPRESSOR</text>
-            <text class="internal-value" x="355" y="357" text-anchor="middle">
-              ${this._escapeHtml(compressor)}
-            </text>
-          </g>
-
-          <!-- Expansion valve -->
-          <g filter="url(#internal-shadow)">
-            <rect class="internal-component" x="515" y="205" width="80" height="75" rx="14"/>
-            <path class="valve-symbol" d="M535 222 L575 262 M575 222 L535 262"/>
-            <text class="internal-title" x="555" y="310" text-anchor="middle">EEV</text>
-            <text class="internal-value" x="555" y="330" text-anchor="middle">
-              ${this._escapeHtml(this._getFormattedValue(deviceId, "eev_position"))}
-            </text>
-          </g>
-
-          <!-- Heat exchanger -->
-          <g filter="url(#internal-shadow)">
-            <rect class="internal-component" x="700" y="95" width="160" height="210" rx="18"/>
-            <rect class="component-inner" x="714" y="110" width="132" height="180" rx="12"/>
-            <path class="coil" d="
-              M730 135 H830 V155 H730 V175 H830 V195
-              H730 V215 H830 V235 H730 V255 H830 V275
-            "/>
-            <text class="internal-title" x="780" y="335" text-anchor="middle">HEAT EXCHANGER</text>
-          </g>
-
-          <text class="internal-caption hot-caption" x="450" y="65" text-anchor="middle">
-            HIGH PRESSURE / HOT GAS SIDE
-          </text>
-          <text class="internal-caption cold-caption" x="450" y="390" text-anchor="middle">
-            LOW PRESSURE / REFRIGERANT RETURN SIDE
-          </text>
-        </svg>
-
-        <div class="diagram-metrics">
-          ${this._renderDiagramMetric(deviceId, "evaporator_temperature", "Evaporator temperature")}
-          ${this._renderDiagramMetric(deviceId, "suction_temperature", "Suction temperature")}
-          ${this._renderDiagramMetric(deviceId, "discharge_temperature", "Discharge temperature")}
-          ${this._renderDiagramMetric(deviceId, "heat_exchanger_temperature", "Heat exchanger temperature")}
-          ${this._renderDiagramMetric(deviceId, "high_pressure", "High-side pressure")}
-          ${this._renderDiagramMetric(deviceId, "low_pressure", "Low-side pressure")}
-          ${this._renderDiagramMetric(deviceId, "compressor_frequency", "Compressor frequency")}
-          ${this._renderDiagramMetric(deviceId, "compressor_current", "Compressor current")}
-          ${this._renderDiagramMetric(deviceId, "fan1_rpm", "Fan 1")}
-          ${this._renderDiagramMetric(deviceId, "fan2_rpm", "Fan 2")}
-          ${this._renderDiagramMetric(deviceId, "water_flow", "Heat pump water flow")}
-          ${this._renderDiagramMetric(deviceId, "flow_temperature", "Heat pump supply")}
-          ${this._renderDiagramMetric(deviceId, "return_temperature", "Heat pump return")}
-        </div>
-
-        <div class="diagram-note">
-          This is an illustrative functional representation. Component positions
-          and refrigerant routing are not verified against the manufacturer's
-          internal engineering drawings.
-        </div>
-      </div>
-    `;
-  }
-
   _renderDevice(deviceId) {
     const groups = GROUP_ORDER.map((groupName) => {
       const definitions = SENSOR_DEFINITIONS.filter(
@@ -928,15 +796,9 @@ class DomusaDashboardCard extends HTMLElement {
       `;
     }).join("");
 
-    let activeContent = "";
-
-    if (this._activeView === "internal") {
-      activeContent = this._renderInternalView(deviceId);
-    } else if (this._activeView === "values") {
-      activeContent = `<div class="content">${groups}</div>`;
-    } else {
-      activeContent = this._renderHydraulicView(deviceId);
-    }
+    const activeContent = this._activeView === "values"
+      ? `<div class="content">${groups}</div>`
+      : this._renderHydraulicView(deviceId);
 
     return `
       <section class="device">
@@ -945,11 +807,6 @@ class DomusaDashboardCard extends HTMLElement {
         </h2>
 
         <div class="view-tabs">
-          <button class="view-tab ${this._activeView === "internal" ? "active" : ""}"
-            data-view="internal" type="button">
-            Internal operation
-          </button>
-
           <button class="view-tab ${this._activeView === "hydraulic" ? "active" : ""}"
             data-view="hydraulic" type="button">
             Hydraulic circuit
@@ -977,42 +834,122 @@ class DomusaDashboardCard extends HTMLElement {
       :host {
         display: block;
         color: var(--primary-text-color);
-        --domusa-bg: #091522;
-        --domusa-panel: #102236;
-        --domusa-panel-light: #19334b;
-        --domusa-border: rgba(139, 183, 211, .18);
+        font-family: var(--primary-font-family, 'Segoe UI', Roboto, sans-serif);
+
+        --domusa-text: var(--primary-text-color, #e8edf2);
+        --domusa-secondary: var(--secondary-text-color, #9aa8b5);
+        --domusa-card: var(--card-background-color, #18212b);
+        --domusa-secondary-bg: var(--secondary-background-color, #202b36);
+        --domusa-border: var(--divider-color, rgba(128, 128, 128, .22));
+        --domusa-primary: var(--primary-color, #03a9f4);
+
+        --domusa-surface: color-mix(
+          in srgb,
+          var(--domusa-card) 72%,
+          transparent
+        );
+
+        --domusa-surface-soft: color-mix(
+          in srgb,
+          var(--domusa-card) 54%,
+          transparent
+        );
+
+        --domusa-surface-strong: color-mix(
+          in srgb,
+          var(--domusa-card) 86%,
+          transparent
+        );
+
         --domusa-cyan: #42c8e5;
         --domusa-blue: #399ce0;
         --domusa-orange: #ff984c;
         --domusa-green: #38c987;
         --domusa-red: #f16f68;
-        --domusa-muted: #8da6ba;
+        --domusa-muted: var(--secondary-text-color, #8da6ba);
       }
 
       ha-card {
+        position: relative;
         overflow: hidden;
+        color: var(--domusa-text);
         border: 1px solid var(--domusa-border);
         border-radius: 20px;
+
         background:
-          radial-gradient(ellipse at 15% 0%, rgba(37, 114, 153, .19), transparent 45%),
-          linear-gradient(145deg, #102337 0%, #091522 65%, #0d1c2b 100%);
-        box-shadow: 0 16px 42px rgba(0, 0, 0, .22);
+          radial-gradient(
+            ellipse at 12% 0%,
+            color-mix(in srgb, var(--domusa-primary) 13%, transparent),
+            transparent 48%
+          ),
+          radial-gradient(
+            ellipse at 90% 100%,
+            rgba(66, 200, 229, .055),
+            transparent 48%
+          ),
+          var(--domusa-card);
+
+        box-shadow:
+          var(--ha-card-box-shadow, 0 8px 28px rgba(0, 0, 0, .10)),
+          inset 0 1px 0 rgba(255, 255, 255, .045);
+
+        transition:
+          box-shadow .3s ease,
+          border-color .3s ease;
+      }
+
+      ha-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: .45;
+
+        background-image: radial-gradient(
+          circle,
+          var(--domusa-muted) .65px,
+          transparent .8px
+        );
+
+        background-size: 18px 18px;
+        mask-image: linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, .45),
+          transparent 75%
+        );
+      }
+
+      ha-card:hover {
+        box-shadow:
+          var(--ha-card-box-shadow, 0 12px 34px rgba(0, 0, 0, .14)),
+          0 0 24px rgba(66, 200, 229, .045);
       }
 
       .header {
+        position: relative;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
         padding: 22px 22px 17px;
+
         border-bottom: 1px solid var(--domusa-border);
-        background: linear-gradient(110deg, rgba(47, 103, 138, .19), transparent 65%);
+
+        background:
+          linear-gradient(
+            110deg,
+            color-mix(in srgb, var(--domusa-primary) 9%, transparent),
+            transparent 68%
+          );
+
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
       }
 
       .heading { min-width: 0; }
 
       .title {
-        color: #edf7ff;
+        color: var(--domusa-text);
         font-size: 1.2rem;
         font-weight: 700;
         letter-spacing: .025em;
@@ -1020,21 +957,34 @@ class DomusaDashboardCard extends HTMLElement {
 
       .subtitle {
         margin-top: 5px;
-        color: #91aec3;
+        color: var(--domusa-secondary);
         font-size: .8rem;
       }
 
       .version {
         padding: 6px 9px;
-        border: 1px solid rgba(66, 200, 229, .24);
+        border: 1px solid color-mix(in srgb, var(--domusa-primary) 28%, var(--domusa-border));
         border-radius: 8px;
-        background: rgba(66, 200, 229, .08);
-        color: #73d9eb;
+
+        background: color-mix(
+          in srgb,
+          var(--domusa-primary) 9%,
+          transparent
+        );
+
+        color: var(--domusa-primary);
         font-size: .7rem;
         white-space: nowrap;
       }
 
-      .content { padding: 0 20px 22px; }
+      .content {
+        position: relative;
+        padding: 0 20px 22px;
+      }
+
+      .device {
+        position: relative;
+      }
 
       .device + .device {
         margin-top: 22px;
@@ -1044,18 +994,20 @@ class DomusaDashboardCard extends HTMLElement {
 
       .device-title {
         margin: 18px 20px 12px;
-        color: #9bb6c9;
+        color: var(--domusa-secondary);
         font-size: .75rem;
         font-weight: 700;
         letter-spacing: .12em;
         text-transform: uppercase;
       }
 
-      .group + .group { margin-top: 20px; }
+      .group + .group {
+        margin-top: 20px;
+      }
 
       .group-title {
         margin: 0 0 10px;
-        color: #d9eaf6;
+        color: var(--domusa-text);
         font-size: .88rem;
         font-weight: 650;
       }
@@ -1069,21 +1021,34 @@ class DomusaDashboardCard extends HTMLElement {
       .metric {
         min-width: 0;
         padding: 13px;
+
         border: 1px solid var(--domusa-border);
         border-radius: 13px;
-        background: linear-gradient(145deg, rgba(34, 62, 84, .7), rgba(13, 29, 45, .88));
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 6px 15px rgba(0,0,0,.12);
+
+        background:
+          linear-gradient(
+            145deg,
+            color-mix(in srgb, var(--domusa-card) 64%, transparent),
+            color-mix(in srgb, var(--domusa-secondary-bg) 48%, transparent)
+          );
+
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, .045),
+          0 5px 16px rgba(0, 0, 0, .055);
+
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
       }
 
       .label {
-        color: #91aabd;
+        color: var(--domusa-secondary);
         font-size: .74rem;
         line-height: 1.4;
       }
 
       .value {
         margin-top: 8px;
-        color: #edf7ff;
+        color: var(--domusa-text);
         font-size: 1.08rem;
         font-weight: 680;
         line-height: 1.3;
@@ -1091,30 +1056,36 @@ class DomusaDashboardCard extends HTMLElement {
       }
 
       .value.active { color: var(--domusa-green); }
-      .value.inactive { color: #a3b4c1; }
-      .value.muted { color: #879aaa; font-size: .9rem; font-weight: 550; }
+      .value.inactive { color: var(--domusa-secondary); }
+      .value.muted {
+        color: var(--domusa-secondary);
+        font-size: .9rem;
+        font-weight: 550;
+      }
 
       .message {
+        position: relative;
         padding: 20px 22px;
-        color: #9bb1c2;
+        color: var(--domusa-secondary);
         font-size: .9rem;
         line-height: 1.55;
       }
 
-      .error { color: #ff8a83; }
+      .error { color: var(--domusa-red); }
 
       .retry {
         margin-top: 12px;
         padding: 8px 13px;
         border: 1px solid var(--domusa-border);
         border-radius: 9px;
-        background: #19334b;
-        color: #e7f4fc;
+        background: var(--domusa-surface);
+        color: var(--domusa-text);
         font: inherit;
         cursor: pointer;
       }
 
       .view-tabs {
+        position: relative;
         display: flex;
         gap: 8px;
         padding: 0 20px 17px;
@@ -1125,31 +1096,69 @@ class DomusaDashboardCard extends HTMLElement {
         padding: 9px 13px;
         border: 1px solid var(--domusa-border);
         border-radius: 10px;
-        background: rgba(12, 29, 45, .7);
-        color: #9bb2c4;
+
+        background: var(--domusa-surface-soft);
+        color: var(--domusa-secondary);
+
         font: inherit;
         font-size: .78rem;
         cursor: pointer;
         white-space: nowrap;
-        transition: background .2s ease, border-color .2s ease, color .2s ease;
+
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+
+        transition:
+          background .2s ease,
+          border-color .2s ease,
+          color .2s ease,
+          box-shadow .2s ease;
+      }
+
+      .view-tab:hover {
+        border-color: color-mix(in srgb, var(--domusa-primary) 42%, var(--domusa-border));
+        color: var(--domusa-text);
       }
 
       .view-tab.active {
-        border-color: rgba(66, 200, 229, .65);
-        background: linear-gradient(135deg, rgba(43, 139, 170, .28), rgba(34, 76, 111, .4));
-        color: #e8f8ff;
-        box-shadow: 0 0 16px rgba(66, 200, 229, .08);
+        border-color: color-mix(in srgb, var(--domusa-primary) 60%, var(--domusa-border));
+
+        background:
+          linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--domusa-primary) 18%, transparent),
+            color-mix(in srgb, var(--domusa-primary) 8%, var(--domusa-card))
+          );
+
+        color: var(--domusa-text);
+
+        box-shadow:
+          0 0 18px color-mix(in srgb, var(--domusa-primary) 10%, transparent),
+          inset 0 1px 0 rgba(255, 255, 255, .07);
       }
 
       .diagram-panel {
+        position: relative;
         margin: 0 18px 20px;
         padding: 16px;
+
         border: 1px solid var(--domusa-border);
         border-radius: 17px;
+
         background:
-          radial-gradient(ellipse at 50% 0%, rgba(44, 104, 141, .16), transparent 60%),
-          linear-gradient(145deg, rgba(19, 43, 64, .97), rgba(9, 23, 37, .98));
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 12px 26px rgba(0,0,0,.16);
+          radial-gradient(
+            ellipse at 50% 0%,
+            color-mix(in srgb, var(--domusa-primary) 10%, transparent),
+            transparent 62%
+          ),
+          var(--domusa-surface);
+
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, .055),
+          0 10px 28px rgba(0, 0, 0, .075);
+
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
       }
 
       .diagram-heading {
@@ -1161,14 +1170,14 @@ class DomusaDashboardCard extends HTMLElement {
       }
 
       .diagram-title {
-        color: #e7f4fc;
+        color: var(--domusa-text);
         font-size: .98rem;
         font-weight: 700;
       }
 
       .diagram-subtitle {
         margin-top: 5px;
-        color: #8fa9bc;
+        color: var(--domusa-secondary);
         font-size: .74rem;
         line-height: 1.4;
       }
@@ -1178,13 +1187,19 @@ class DomusaDashboardCard extends HTMLElement {
         align-items: center;
         gap: 7px;
         padding: 7px 10px;
+
         border: 1px solid var(--domusa-border);
         border-radius: 20px;
-        background: rgba(0,0,0,.14);
-        color: #a8bdcd;
+
+        background: var(--domusa-surface-soft);
+        color: var(--domusa-secondary);
+
         font-size: .65rem;
         font-weight: 700;
         white-space: nowrap;
+
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
       }
 
       .status-dot {
@@ -1195,20 +1210,30 @@ class DomusaDashboardCard extends HTMLElement {
       }
 
       .pump-running { color: var(--domusa-green); }
-      .pump-stopped { color: #a4b5c2; }
+      .pump-stopped { color: var(--domusa-secondary); }
       .pump-unknown { color: var(--domusa-orange); }
 
       .hydraulic-stage {
         overflow: hidden;
-        border: 1px solid rgba(113, 166, 197, .12);
+
+        border: 1px solid color-mix(
+          in srgb,
+          var(--domusa-border) 80%,
+          transparent
+        );
+
         border-radius: 14px;
+
         background:
-          radial-gradient(ellipse at 50% 40%, rgba(48, 103, 139, .13), transparent 65%),
-          rgba(4, 15, 26, .34);
+          radial-gradient(
+            ellipse at 50% 40%,
+            rgba(48, 103, 139, .13),
+            transparent 65%
+          ),
+          rgba(4, 15, 26, .22);
       }
 
-      .hydraulic-svg,
-      .internal-svg {
+      .hydraulic-svg {
         display: block;
         width: 100%;
         height: auto;
@@ -1238,7 +1263,11 @@ class DomusaDashboardCard extends HTMLElement {
       }
 
       .hp-fan-hub { fill: #9fc8dc; }
-      .hp-fan-blade { fill: #4d7e9a; stroke: #78a9c0; stroke-width: 1; }
+      .hp-fan-blade {
+        fill: #4d7e9a;
+        stroke: #78a9c0;
+        stroke-width: 1;
+      }
 
       .component-title {
         fill: #e8f6ff;
@@ -1317,14 +1346,33 @@ class DomusaDashboardCard extends HTMLElement {
       }
 
       .tank-water { fill: url(#tank-water); }
-      .tank-highlight { stroke: rgba(255,255,255,.14); stroke-width: 4; stroke-linecap: round; }
-      .tank-label { fill: #c8e2f0; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
-      .tank-temp { fill: #fff2df; font-size: 20px; font-weight: 700; }
-      .tank-caption { fill: #c2d8e5; font-size: 9px; letter-spacing: .2em; }
 
-      .pump-housing {
-        stroke-width: 3;
+      .tank-highlight {
+        stroke: rgba(255,255,255,.14);
+        stroke-width: 4;
+        stroke-linecap: round;
       }
+
+      .tank-label {
+        fill: #c8e2f0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .16em;
+      }
+
+      .tank-temp {
+        fill: #fff2df;
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .tank-caption {
+        fill: #c2d8e5;
+        font-size: 9px;
+        letter-spacing: .2em;
+      }
+
+      .pump-housing { stroke-width: 3; }
 
       .pump-active {
         fill: #155c50;
@@ -1351,7 +1399,7 @@ class DomusaDashboardCard extends HTMLElement {
       .pump-impeller { fill: #d7edf6; }
 
       .heating-shell {
-        fill: url(#internal-shell);
+        fill: url(#tank-shell);
         stroke: #5d8ca9;
         stroke-width: 2;
       }
@@ -1376,7 +1424,7 @@ class DomusaDashboardCard extends HTMLElement {
         flex-wrap: wrap;
         gap: 14px;
         margin: 12px 2px 0;
-        color: #9bb3c5;
+        color: var(--domusa-secondary);
         font-size: .69rem;
       }
 
@@ -1407,114 +1455,54 @@ class DomusaDashboardCard extends HTMLElement {
       .diagram-metric {
         min-width: 0;
         padding: 11px 12px;
+
         border: 1px solid var(--domusa-border);
         border-radius: 11px;
-        background: linear-gradient(145deg, rgba(34, 62, 84, .6), rgba(10, 25, 40, .8));
+
+        background:
+          linear-gradient(
+            145deg,
+            color-mix(in srgb, var(--domusa-card) 62%, transparent),
+            color-mix(in srgb, var(--domusa-secondary-bg) 42%, transparent)
+          );
+
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, .04),
+          0 4px 12px rgba(0, 0, 0, .045);
+
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
       }
 
       .diagram-metric-label {
-        color: #91aabd;
+        color: var(--domusa-secondary);
         font-size: .7rem;
         line-height: 1.35;
       }
 
       .diagram-metric-value {
         margin-top: 6px;
-        color: #edf7ff;
+        color: var(--domusa-text);
         font-size: 1rem;
         font-weight: 680;
         overflow-wrap: anywhere;
       }
 
       .diagram-metric-value.active { color: var(--domusa-green); }
-      .diagram-metric-value.inactive { color: #a3b4c1; }
-      .diagram-metric-value.muted { color: #879aaa; font-size: .88rem; }
+      .diagram-metric-value.inactive { color: var(--domusa-secondary); }
+
+      .diagram-metric-value.muted {
+        color: var(--domusa-secondary);
+        font-size: .88rem;
+      }
 
       .diagram-note {
         margin-top: 13px;
         padding-top: 11px;
-        border-top: 1px solid rgba(139, 183, 211, .12);
-        color: #819bad;
+        border-top: 1px solid var(--domusa-border);
+        color: var(--domusa-secondary);
         font-size: .7rem;
         line-height: 1.5;
-      }
-
-      /* Internal illustration */
-
-      .internal-svg {
-        overflow: hidden;
-        border: 1px solid rgba(113, 166, 197, .12);
-        border-radius: 14px;
-        background: rgba(4, 15, 26, .34);
-      }
-
-      .internal-component {
-        fill: url(#internal-shell);
-        stroke: #6b9bb7;
-        stroke-width: 2;
-      }
-
-      .component-inner {
-        fill: rgba(6, 21, 34, .5);
-        stroke: rgba(156, 200, 222, .25);
-      }
-
-      .coil {
-        fill: none;
-        stroke: #6fc2df;
-        stroke-width: 4;
-        stroke-linejoin: round;
-        stroke-linecap: round;
-      }
-
-      .compressor-shell { fill: #1d3d56; }
-      .compressor-top { fill: #49738c; stroke: #8db6ca; stroke-width: 2; }
-      .compressor-body { fill: #244c68; stroke: #80aeca; stroke-width: 2; }
-      .compressor-base { fill: #142d43; stroke: #638ba5; stroke-width: 2; }
-
-      .internal-title {
-        fill: #dceef8;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: .08em;
-      }
-
-      .internal-value {
-        fill: #8edbf0;
-        font-size: 12px;
-        font-weight: 700;
-      }
-
-      .internal-caption {
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: .12em;
-      }
-
-      .hot-caption { fill: #ffab66; }
-      .cold-caption { fill: #68c9e8; }
-
-      .refrigerant-hot {
-        fill: none;
-        stroke: url(#hot-line);
-        stroke-width: 6;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-
-      .refrigerant-cold {
-        fill: none;
-        stroke: url(#cold-line);
-        stroke-width: 6;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-
-      .valve-symbol {
-        fill: none;
-        stroke: #b8d5e5;
-        stroke-width: 3;
-        stroke-linecap: round;
       }
 
       @keyframes hydraulic-flow {
@@ -1526,19 +1514,56 @@ class DomusaDashboardCard extends HTMLElement {
         .pipe-return.flow-active {
           animation: none;
         }
+
+        ha-card {
+          transition: none;
+        }
       }
 
       @media (max-width: 520px) {
-        .header { padding: 17px 15px 14px; }
-        .content { padding: 0 12px 16px; }
-        .device-title { margin-left: 12px; margin-right: 12px; }
-        .view-tabs { padding-left: 12px; padding-right: 12px; }
-        .diagram-panel { margin-left: 10px; margin-right: 10px; padding: 11px; }
-        .diagram-heading { flex-direction: column; }
-        .diagram-metrics { gap: 7px; }
-        .diagram-metric { padding: 9px; }
-        .diagram-metric-value { font-size: .91rem; }
-        .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .header {
+          padding: 17px 15px 14px;
+        }
+
+        .content {
+          padding: 0 12px 16px;
+        }
+
+        .device-title {
+          margin-left: 12px;
+          margin-right: 12px;
+        }
+
+        .view-tabs {
+          padding-left: 12px;
+          padding-right: 12px;
+        }
+
+        .diagram-panel {
+          margin-left: 10px;
+          margin-right: 10px;
+          padding: 11px;
+        }
+
+        .diagram-heading {
+          flex-direction: column;
+        }
+
+        .diagram-metrics {
+          gap: 7px;
+        }
+
+        .diagram-metric {
+          padding: 9px;
+        }
+
+        .diagram-metric-value {
+          font-size: .91rem;
+        }
+
+        .grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
       }
     `;
 
