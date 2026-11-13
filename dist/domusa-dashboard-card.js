@@ -237,6 +237,12 @@ class DomusaDashboardCard extends HTMLElement {
         continue;
       }
 
+      // Ignore auxiliary Bridge entities.
+      // Only the actual heat pump device should be displayed.
+      if (/_CONTROL$/i.test(deviceId) || /_SUB$/i.test(deviceId)) {
+        continue;
+      }
+
       if (!mapped[deviceId]) {
         mapped[deviceId] = {};
       }
