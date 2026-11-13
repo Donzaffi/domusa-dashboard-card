@@ -1,14 +1,4 @@
-
-/*
- * DOMUSA Dashboard Card
- * Version 0.4.2
- *
- * Reads existing DOMUSA Bridge entities from Home Assistant.
- * No sensors, services, MQTT messages, or backend polling are created.
- * This card is strictly read-only.
- */
-
-const CARD_VERSION = "0.4.2";
+const CARD_VERSION = "0.4.3";
 const CARD_TYPE = "domusa-dashboard";
 const UNIQUE_ID_PREFIX = "domusa_";
 
